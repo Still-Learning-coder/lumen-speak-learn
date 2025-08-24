@@ -27,6 +27,18 @@ const Index = () => {
             <h1 className="text-xl font-bold gradient-text">AskLumen.ai</h1>
           </div>
           
+          <nav className="hidden md:flex items-center gap-6">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/questions')}>
+              Questions
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/experts')}>
+              Experts
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/pricing')}>
+              Pricing
+            </Button>
+          </nav>
+          
           <div className="flex items-center gap-4">
             {user ? (
               <>
@@ -39,9 +51,14 @@ const Index = () => {
                     </span>
                   )}
                 </div>
-                <Button variant="ghost" size="sm">
+                <Button variant="ghost" size="sm" onClick={() => navigate('/profile')}>
                   <Settings className="h-4 w-4" />
                 </Button>
+                {profile?.role === 'admin' && (
+                  <Button variant="ghost" size="sm" onClick={() => navigate('/admin')}>
+                    Admin
+                  </Button>
+                )}
                 <Button variant="outline" size="sm" onClick={handleAuthAction}>
                   <LogOut className="h-4 w-4 mr-2" />
                   Sign Out
