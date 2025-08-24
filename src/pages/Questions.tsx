@@ -104,6 +104,7 @@ const Questions = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [webSpeechSupported, setWebSpeechSupported] = useState(false);
   
   const recorderRef = useRef<AudioRecorder | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -114,6 +115,11 @@ const Questions = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    // Check if Web Speech API is supported
+    setWebSpeechSupported('speechSynthesis' in window);
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -214,49 +220,7 @@ const Questions = () => {
       // Generate audio for the response if not muted
       let audioUrl = '';
       if (!isMuted) {
-        try {
-          console.log('Calling text-to-speech function...', { 
-            textLength: assistantResponse.length,
-            voice: '9BWtsMINqrJLrRacOk9x'
-          });
-          
-          const { data: audioData, error: audioError } = await supabase.functions.invoke('text-to-speech', {
-            body: { 
-              text: assistantResponse,
-              voice: '9BWtsMINqrJLrRacOk9x' // Using ElevenLabs Aria voice ID
-            }
-          });
-
-          console.log('TTS Response received:', { 
-            hasAudioData: !!audioData?.audioContent, 
-            audioError: audioError?.message 
-          });
-
-          if (audioError) {
-            console.error('Text-to-speech error:', audioError);
-            // More specific error messages based on the error
-            if (audioError.message?.includes('401') || audioError.message?.includes('API key')) {
-              toast.error("Text-to-speech unavailable: Please check ElevenLabs API key");
-            } else if (audioError.message?.includes('unusual_activity')) {
-              toast.error("Text-to-speech temporarily unavailable due to API limits");
-            } else {
-              toast.error(`Audio generation failed: ${audioError.message}`);
-            }
-          } else if (audioData?.error) {
-            console.error('TTS API error:', audioData.error);
-            if (audioData.error.includes('401') || audioData.error.includes('unusual_activity')) {
-              toast.error("Text-to-speech temporarily unavailable - continuing with text only");
-            } else {
-              toast.error("Audio generation failed - continuing with text only");
-            }
-          } else if (audioData?.audioContent) {
-            audioUrl = `data:audio/mp3;base64,${audioData.audioContent}`;
-            console.log('Audio URL created successfully');
-          }
-        } catch (audioError) {
-          console.error('Audio generation failed:', audioError);
-          toast.error("Audio generation failed - continuing with text only");
-        }
+        audioUrl = await generateAudio(assistantResponse);
       }
 
       const assistantMessage: Message = {
@@ -272,7 +236,12 @@ const Questions = () => {
 
       // Auto-play audio if available and not muted
       if (audioUrl && !isMuted) {
-        setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
+        if (audioUrl === 'web-speech-synthesis') {
+          // Web Speech API already played the audio
+          assistantMessage.audioUrl = '';
+        } else {
+          setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
+        }
       }
 
     } catch (error) {
@@ -344,6 +313,115 @@ const Questions = () => {
       e.preventDefault();
       sendQuestion();
     }
+  };
+
+  const generateAudio = async (text: string): Promise<string> => {
+    try {
+      console.log('🎵 Starting audio generation for text:', { textLength: text.length });
+      
+      // First try Supabase TTS function
+      const { data: audioData, error: audioError } = await supabase.functions.invoke('text-to-speech', {
+        body: { 
+          text: text,
+          voice: '9BWtsMINqrJLrRacOk9x'
+        }
+      });
+
+      console.log('🎵 TTS Response:', { 
+        hasAudioData: !!audioData?.audioContent, 
+        audioError: audioError?.message,
+        audioDataError: audioData?.error 
+      });
+
+      if (!audioError && audioData?.audioContent && !audioData?.error) {
+        console.log('✅ External TTS successful');
+        return `data:audio/mp3;base64,${audioData.audioContent}`;
+      }
+
+      // Log the specific error for debugging
+      const errorMsg = audioError?.message || audioData?.error || 'Unknown TTS error';
+      console.warn('⚠️ External TTS failed:', errorMsg);
+
+      // Fallback to Web Speech API if supported
+      if (webSpeechSupported) {
+        console.log('🎵 Falling back to Web Speech API');
+        return await generateWebSpeechAudio(text);
+      }
+
+      // If no fallback available, show specific error
+      if (errorMsg.includes('401') || errorMsg.includes('API key')) {
+        toast.error("TTS unavailable: API key issue");
+      } else if (errorMsg.includes('429') || errorMsg.includes('quota')) {
+        toast.error("TTS unavailable: API quota exceeded");
+      } else if (errorMsg.includes('unusual_activity')) {
+        toast.error("TTS temporarily unavailable due to API limits");
+      } else {
+        toast.error("TTS unavailable - continuing with text only");
+      }
+
+      return '';
+    } catch (error) {
+      console.error('🚨 Audio generation failed completely:', error);
+      
+      // Try Web Speech as last resort
+      if (webSpeechSupported) {
+        console.log('🎵 Last resort: Web Speech API');
+        try {
+          return await generateWebSpeechAudio(text);
+        } catch (webSpeechError) {
+          console.error('🚨 Web Speech also failed:', webSpeechError);
+        }
+      }
+      
+      toast.error("All audio services unavailable - continuing with text only");
+      return '';
+    }
+  };
+
+  const generateWebSpeechAudio = async (text: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      try {
+        console.log('🔊 Generating audio with Web Speech API');
+        
+        // Cancel any ongoing speech
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+        
+        // Try to use a pleasant voice
+        const voices = window.speechSynthesis.getVoices();
+        const preferredVoice = voices.find(voice => 
+          voice.name.includes('Samantha') || 
+          voice.name.includes('Alex') || 
+          voice.name.includes('Karen') ||
+          voice.name.toLowerCase().includes('female')
+        ) || voices[0];
+        
+        if (preferredVoice) {
+          utterance.voice = preferredVoice;
+        }
+        
+        utterance.onend = () => {
+          console.log('✅ Web Speech synthesis complete');
+          // Return a flag to indicate web speech was used
+          resolve('web-speech-synthesis');
+        };
+        
+        utterance.onerror = (error) => {
+          console.error('🚨 Web Speech synthesis error:', error);
+          reject(error);
+        };
+        
+        window.speechSynthesis.speak(utterance);
+        toast.success("Using browser's text-to-speech");
+      } catch (error) {
+        console.error('🚨 Web Speech setup error:', error);
+        reject(error);
+      }
+    });
   };
 
   const generateVideoResponse = () => {

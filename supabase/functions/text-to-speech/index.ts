@@ -96,10 +96,19 @@ serve(async (req) => {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('ElevenLabs API error:', errorText);
+        console.error(`ElevenLabs API failed: ${response.status} - ${errorText}`);
+        
+        // Log specific error details for debugging
+        if (response.status === 401) {
+          console.error('ElevenLabs: Invalid API key or unauthorized');
+        } else if (response.status === 429) {
+          console.error('ElevenLabs: Rate limit exceeded');
+        } else if (errorText.includes('unusual_activity')) {
+          console.error('ElevenLabs: Unusual activity detected');
+        }
         
         // If ElevenLabs fails, fallback to OpenAI
-        console.log('ElevenLabs failed, falling back to OpenAI TTS');
+        console.log('🔄 ElevenLabs failed, falling back to OpenAI TTS');
         const openaiApiKey = Deno.env.get('OPENAI_API_KEY');
         if (!openaiApiKey) {
           throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
@@ -121,7 +130,15 @@ serve(async (req) => {
 
         if (!openaiResponse.ok) {
           const openaiErrorText = await openaiResponse.text();
-          console.error('OpenAI TTS API error:', openaiErrorText);
+          console.error(`OpenAI TTS API failed: ${openaiResponse.status} - ${openaiErrorText}`);
+          
+          // Log specific OpenAI error details
+          if (openaiResponse.status === 429) {
+            console.error('OpenAI: API quota exceeded or rate limit');
+          } else if (openaiResponse.status === 401) {
+            console.error('OpenAI: Invalid API key');
+          }
+          
           throw new Error(`Both TTS services failed. ElevenLabs: ${response.status} - ${errorText}. OpenAI: ${openaiResponse.status} - ${openaiErrorText}`);
         }
 
@@ -136,7 +153,7 @@ serve(async (req) => {
         }
         const base64Audio = btoa(binaryString);
 
-        console.log('OpenAI text-to-speech successful (fallback)');
+        console.log('✅ OpenAI text-to-speech successful (fallback)');
         return new Response(
           JSON.stringify({ audioContent: base64Audio }),
           {
@@ -158,7 +175,7 @@ serve(async (req) => {
       }
       const base64Audio = btoa(binaryString);
 
-      console.log('Text-to-speech successful with ElevenLabs');
+      console.log('✅ Text-to-speech successful with ElevenLabs');
 
       return new Response(
         JSON.stringify({ audioContent: base64Audio }),
