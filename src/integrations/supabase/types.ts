@@ -164,6 +164,103 @@ export type Database = {
         }
         Relationships: []
       }
+      conversation_audio: {
+        Row: {
+          audio_url: string
+          created_at: string
+          id: string
+          message_id: string
+          voice_id: string | null
+          voice_provider: string
+        }
+        Insert: {
+          audio_url: string
+          created_at?: string
+          id?: string
+          message_id: string
+          voice_id?: string | null
+          voice_provider: string
+        }
+        Update: {
+          audio_url?: string
+          created_at?: string
+          id?: string
+          message_id?: string
+          voice_id?: string | null
+          voice_provider?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_audio_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversation_messages: {
+        Row: {
+          audio_url: string | null
+          content: string
+          conversation_id: string
+          created_at: string
+          id: string
+          is_playing: boolean | null
+          role: string
+        }
+        Insert: {
+          audio_url?: string | null
+          content: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          is_playing?: boolean | null
+          role: string
+        }
+        Update: {
+          audio_url?: string | null
+          content?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          is_playing?: boolean | null
+          role?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      conversations: {
+        Row: {
+          created_at: string
+          id: string
+          title: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          title?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       events: {
         Row: {
           created_at: string
@@ -244,6 +341,47 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "profiles"
             referencedColumns: ["user_id"]
+          },
+        ]
+      }
+      generated_images: {
+        Row: {
+          ai_response: string
+          created_at: string
+          id: string
+          image_prompt: string
+          image_url: string
+          message_id: string
+          provider: string
+          user_question: string
+        }
+        Insert: {
+          ai_response: string
+          created_at?: string
+          id?: string
+          image_prompt: string
+          image_url: string
+          message_id: string
+          provider?: string
+          user_question: string
+        }
+        Update: {
+          ai_response?: string
+          created_at?: string
+          id?: string
+          image_prompt?: string
+          image_url?: string
+          message_id?: string
+          provider?: string
+          user_question?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "generated_images_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "conversation_messages"
+            referencedColumns: ["id"]
           },
         ]
       }
