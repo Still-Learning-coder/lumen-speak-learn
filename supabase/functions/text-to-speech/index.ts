@@ -35,7 +35,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         text: text,
-        voiceId: voice || 'en-US-sarah', // Default to Sarah voice if none specified
+        voiceId: voice || 'en-US-natalie', // Default to Natalie voice if none specified
         audioDuration: 0, // Let Murf determine the duration
       }),
     });
