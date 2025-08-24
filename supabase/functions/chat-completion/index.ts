@@ -92,7 +92,12 @@ serve(async (req) => {
 
     if (!response.ok) {
       console.error('OpenAI API error:', data);
-      throw new Error(data.error?.message || 'Failed to get response from OpenAI');
+      return new Response(JSON.stringify({ 
+        error: data.error?.message || 'Failed to get response from OpenAI'
+      }), {
+        status: 200, // Return 200 so client can handle the error properly
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const assistantMessage = data.choices[0].message.content;
