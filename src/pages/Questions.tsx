@@ -211,14 +211,13 @@ const Questions = () => {
 
       const assistantResponse = responseData.response;
 
-      // Generate audio for the response if not muted and user is premium
+      // Generate audio for the response if not muted
       let audioUrl = '';
-      if (!isMuted && isPremium) {
+      if (!isMuted) {
         try {
           console.log('Calling text-to-speech function...', { 
             textLength: assistantResponse.length,
-            voice: '9BWtsMINqrJLrRacOk9x',
-            isPremium
+            voice: '9BWtsMINqrJLrRacOk9x'
           });
           
           const { data: audioData, error: audioError } = await supabase.functions.invoke('text-to-speech', {
@@ -244,8 +243,6 @@ const Questions = () => {
           console.error('Audio generation failed:', audioError);
           toast.error("Failed to generate audio response");
         }
-      } else if (!isMuted && !isPremium) {
-        console.log('User not premium tier, skipping audio generation');
       }
 
       const assistantMessage: Message = {
