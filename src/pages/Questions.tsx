@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
-import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Play, Pause, Video, Crown, Loader2, ImageIcon } from 'lucide-react';
+import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Play, Pause, Video, Crown, Loader2, ImageIcon, Paperclip, X } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 interface Message {
@@ -91,6 +91,7 @@ const Questions = () => {
   const [imageGenerating, setImageGenerating] = useState<Set<string>>(new Set());
   const [webSpeechSupported, setWebSpeechSupported] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -527,6 +528,16 @@ const Questions = () => {
       setIsProcessing(false);
     }
   };
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    setSelectedFiles(prev => [...prev, ...files]);
+    toast.success(`${files.length} file(s) selected`);
+  };
+
+  const removeFile = (index: number) => {
+    setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -806,7 +817,47 @@ const Questions = () => {
           <Card>
             <CardContent className="p-6">
               <div className="space-y-4">
-                <Textarea ref={textareaRef} value={inputText} onChange={e => setInputText(e.target.value)} onKeyPress={handleKeyPress} placeholder="Type your question here or use voice input..." className="min-h-[100px] resize-none" disabled={isProcessing} />
+                <div className="relative">
+                  <Textarea ref={textareaRef} value={inputText} onChange={e => setInputText(e.target.value)} onKeyPress={handleKeyPress} placeholder="Type your question here or use voice input..." className="min-h-[100px] resize-none" disabled={isProcessing} />
+                  
+                  {/* File Upload Button */}
+                  <div className="absolute bottom-3 right-3">
+                    <label htmlFor="file-upload" className="cursor-pointer">
+                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" asChild>
+                        <span>
+                          <Paperclip className="h-4 w-4" />
+                        </span>
+                      </Button>
+                    </label>
+                    <input
+                      id="file-upload"
+                      type="file"
+                      multiple
+                      onChange={handleFileSelect}
+                      className="hidden"
+                      accept="image/*,audio/*,video/*,.pdf,.doc,.docx,.txt"
+                    />
+                  </div>
+                </div>
+
+                {/* Selected Files Display */}
+                {selectedFiles.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {selectedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center gap-2 bg-muted px-3 py-2 rounded-lg text-sm">
+                        <span className="truncate max-w-[200px]">{file.name}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-5 w-5 p-0 hover:bg-destructive hover:text-destructive-foreground"
+                          onClick={() => removeFile(index)}
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
                 
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
