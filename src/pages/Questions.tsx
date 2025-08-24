@@ -234,14 +234,28 @@ const Questions = () => {
 
           if (audioError) {
             console.error('Text-to-speech error:', audioError);
-            toast.error(`Failed to generate audio: ${audioError.message}`);
+            // More specific error messages based on the error
+            if (audioError.message?.includes('401') || audioError.message?.includes('API key')) {
+              toast.error("Text-to-speech unavailable: Please check ElevenLabs API key");
+            } else if (audioError.message?.includes('unusual_activity')) {
+              toast.error("Text-to-speech temporarily unavailable due to API limits");
+            } else {
+              toast.error(`Audio generation failed: ${audioError.message}`);
+            }
+          } else if (audioData?.error) {
+            console.error('TTS API error:', audioData.error);
+            if (audioData.error.includes('401') || audioData.error.includes('unusual_activity')) {
+              toast.error("Text-to-speech temporarily unavailable - continuing with text only");
+            } else {
+              toast.error("Audio generation failed - continuing with text only");
+            }
           } else if (audioData?.audioContent) {
             audioUrl = `data:audio/mp3;base64,${audioData.audioContent}`;
             console.log('Audio URL created successfully');
           }
         } catch (audioError) {
           console.error('Audio generation failed:', audioError);
-          toast.error("Failed to generate audio response");
+          toast.error("Audio generation failed - continuing with text only");
         }
       }
 
