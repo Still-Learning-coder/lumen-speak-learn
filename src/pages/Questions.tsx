@@ -217,7 +217,7 @@ const Questions = () => {
 
       const assistantResponse = responseData.response;
 
-      // Create and add message immediately so text appears right away
+      // Create and add message (text-only by default)
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: assistantResponse,
@@ -228,24 +228,6 @@ const Questions = () => {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
-
-      // Generate and play audio simultaneously while text is visible
-      if (!isMuted) {
-        generateAudio(assistantResponse).then(audioUrl => {
-          if (audioUrl && audioUrl !== 'web-speech-synthesis') {
-            // Update message with audio URL and play
-            setMessages(prev => prev.map(msg => 
-              msg.id === assistantMessage.id 
-                ? { ...msg, audioUrl }
-                : msg
-            ));
-            setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
-          }
-          // For web-speech-synthesis, audio already played during generation
-        }).catch(error => {
-          console.error('Audio generation error:', error);
-        });
-      }
 
     } catch (error) {
       console.error('Error getting response:', error);
@@ -308,6 +290,46 @@ const Questions = () => {
       currentAudio.currentTime = 0;
       setCurrentAudio(null);
       setMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+    }
+  };
+
+  const handleReadAloud = async (messageId: string, content: string) => {
+    if (isMuted) {
+      toast.info('Audio is muted. Unmute to hear the response.');
+      return;
+    }
+
+    // Find the message and check if it already has audio
+    const message = messages.find(msg => msg.id === messageId);
+    if (message?.audioUrl && message.audioUrl !== '') {
+      // If audio already exists, just play it
+      if (message.isPlaying) {
+        stopAudio();
+      } else {
+        playAudio(messageId, message.audioUrl);
+      }
+      return;
+    }
+
+    // Generate audio for the first time
+    setIsProcessing(true);
+    try {
+      const audioUrl = await generateAudio(content);
+      if (audioUrl && audioUrl !== 'web-speech-synthesis') {
+        // Update message with audio URL and play
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, audioUrl }
+            : msg
+        ));
+        setTimeout(() => playAudio(messageId, audioUrl), 100);
+      }
+      // For web-speech-synthesis, audio already played during generation
+    } catch (error) {
+      console.error('Audio generation error:', error);
+      toast.error('Failed to generate audio');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -560,26 +582,21 @@ const Questions = () => {
                       <p className="whitespace-pre-wrap">{message.content}</p>
                     )}
                     
-                    {message.role === 'assistant' && message.audioUrl && (
+                    {message.role === 'assistant' && (
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => 
-                            message.isPlaying 
-                              ? stopAudio() 
-                              : playAudio(message.id, message.audioUrl!)
-                          }
+                          onClick={() => handleReadAloud(message.id, message.content)}
+                          disabled={isProcessing}
                         >
                           {message.isPlaying ? (
-                            <Pause className="h-4 w-4" />
+                            <Pause className="h-4 w-4 mr-1" />
                           ) : (
-                            <Play className="h-4 w-4" />
+                            <Volume2 className="h-4 w-4 mr-1" />
                           )}
+                          {message.isPlaying ? 'Stop Reading' : 'Read Aloud'}
                         </Button>
-                        <span className="text-xs text-muted-foreground">
-                          {message.isPlaying ? 'Playing...' : 'Play Audio'}
-                        </span>
                         
                         {isPremium && (
                           <Button
