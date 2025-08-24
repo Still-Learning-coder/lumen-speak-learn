@@ -217,31 +217,34 @@ const Questions = () => {
 
       const assistantResponse = responseData.response;
 
-      // Generate audio for the response if not muted
-      let audioUrl = '';
-      if (!isMuted) {
-        audioUrl = await generateAudio(assistantResponse);
-      }
-
+      // Create and add message immediately so text appears right away
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: assistantResponse,
         role: 'assistant',
         timestamp: new Date(),
-        audioUrl: audioUrl,
+        audioUrl: '',
         isPlaying: false
       };
 
       setMessages(prev => [...prev, assistantMessage]);
 
-      // Auto-play audio if available and not muted
-      if (audioUrl && !isMuted) {
-        if (audioUrl === 'web-speech-synthesis') {
-          // Web Speech API already played the audio - no need to store URL for playback
-          // but keep the message content intact
-        } else {
-          setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
-        }
+      // Generate and play audio simultaneously while text is visible
+      if (!isMuted) {
+        generateAudio(assistantResponse).then(audioUrl => {
+          if (audioUrl && audioUrl !== 'web-speech-synthesis') {
+            // Update message with audio URL and play
+            setMessages(prev => prev.map(msg => 
+              msg.id === assistantMessage.id 
+                ? { ...msg, audioUrl }
+                : msg
+            ));
+            setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
+          }
+          // For web-speech-synthesis, audio already played during generation
+        }).catch(error => {
+          console.error('Audio generation error:', error);
+        });
       }
 
     } catch (error) {
