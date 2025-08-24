@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
-import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Play, Pause, Video, Crown, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Send, Bot, User, Volume2, VolumeX, Play, Pause, Video, Crown, Loader2, ImageIcon } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 interface Message {
@@ -17,6 +17,7 @@ interface Message {
   timestamp: Date;
   audioUrl?: string;
   isPlaying?: boolean;
+  generatedImageUrl?: string;
 }
 
 // Audio recorder class
@@ -85,6 +86,8 @@ const Questions = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
+  const [generatedImages, setGeneratedImages] = useState<Map<string, string>>(new Map());
+  const [imageGenerating, setImageGenerating] = useState<Set<string>>(new Set());
   const [webSpeechSupported, setWebSpeechSupported] = useState(false);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -279,6 +282,57 @@ const Questions = () => {
       // Remove multiple spaces and normalize whitespace
       .replace(/\s+/g, ' ')
       .trim();
+  };
+
+  const handleGenerateImage = async (messageId: string, userQuestion: string, aiResponse: string) => {
+    if (imageGenerating.has(messageId)) return;
+
+    setImageGenerating(prev => new Set(prev).add(messageId));
+
+    try {
+      // First, generate the image prompt
+      const promptResponse = await supabase.functions.invoke('generate-image-prompt', {
+        body: { userQuestion, aiResponse }
+      });
+
+      if (promptResponse.error) {
+        throw new Error(promptResponse.error.message || 'Failed to generate image prompt');
+      }
+
+      const { imagePrompt } = promptResponse.data;
+
+      // Then, generate the image using the prompt
+      const imageResponse = await supabase.functions.invoke('image-generation', {
+        body: { prompt: imagePrompt }
+      });
+
+      if (imageResponse.error) {
+        throw new Error(imageResponse.error.message || 'Failed to generate image');
+      }
+
+      const { imageUrl } = imageResponse.data;
+
+      // Store the generated image
+      setGeneratedImages(prev => new Map(prev).set(messageId, imageUrl));
+
+      // Update the message with the generated image
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, generatedImageUrl: imageUrl }
+          : msg
+      ));
+
+      toast.success('Image generated successfully!');
+    } catch (error) {
+      console.error('Error generating image:', error);
+      toast.error('Failed to generate image. Please try again.');
+    } finally {
+      setImageGenerating(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
+    }
   };
 
   const handleReadAloud = async (messageId: string, content: string) => {
@@ -521,11 +575,46 @@ const Questions = () => {
                         </ReactMarkdown>
                       </div> : <p className="whitespace-pre-wrap">{message.content}</p>}
                     
-                    {message.role === 'assistant' && <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
-                        <Button variant="ghost" size="sm" onClick={() => handleReadAloud(message.id, message.content)} disabled={isProcessing}>
-                          {message.isPlaying ? <Pause className="h-4 w-4 mr-1" /> : <Volume2 className="h-4 w-4 mr-1" />}
-                          {message.isPlaying ? 'Stop Reading' : 'Read Aloud'}
-                        </Button>
+                    {/* Display generated image if available */}
+                    {message.generatedImageUrl && (
+                      <div className="mt-4 pt-4 border-t border-border/50">
+                        <img 
+                          src={message.generatedImageUrl} 
+                          alt="Generated visual explanation"
+                          className="w-full rounded-lg shadow-md cursor-pointer hover:shadow-lg transition-shadow"
+                          onClick={() => window.open(message.generatedImageUrl, '_blank')}
+                        />
+                      </div>
+                    )}
+
+                    {message.role === 'assistant' && <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50">
+                        <div className="flex items-center gap-2">
+                          <Button variant="ghost" size="sm" onClick={() => handleReadAloud(message.id, message.content)} disabled={isProcessing}>
+                            {message.isPlaying ? <Pause className="h-4 w-4 mr-1" /> : <Volume2 className="h-4 w-4 mr-1" />}
+                            {message.isPlaying ? 'Stop Reading' : 'Read Aloud'}
+                          </Button>
+                        </div>
+                        
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const userQuestion = messages.find((msg, index) => 
+                                index < messages.indexOf(message) && msg.role === 'user'
+                              )?.content || '';
+                              handleGenerateImage(message.id, userQuestion, message.content);
+                            }}
+                            disabled={imageGenerating.has(message.id)}
+                          >
+                            {imageGenerating.has(message.id) ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <ImageIcon className="h-4 w-4 mr-1" />
+                            )}
+                            {imageGenerating.has(message.id) ? 'Generating...' : 'Generate Image'}
+                          </Button>
+                        </div>
                         
                         {isPremium && <Button variant="ghost" size="sm" onClick={generateVideoResponse} className="ml-auto">
                             <Video className="h-4 w-4 mr-1" />
