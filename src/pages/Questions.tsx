@@ -359,10 +359,31 @@ const Questions = () => {
       
     } catch (error) {
       console.error('Error getting response:', error);
-      toast.error('Failed to get response. Please try again.');
+      
+      // Extract meaningful error message
+      let errorContent = 'Sorry, I encountered an error. Please try again.';
+      let toastMessage = 'Failed to get response. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('Rate limit reached')) {
+          errorContent = 'OpenAI API rate limit exceeded. Please wait a few minutes and try again, or consider upgrading your OpenAI plan for higher limits.';
+          toastMessage = 'Rate limit exceeded. Please wait and try again.';
+        } else if (error.message.includes('insufficient_quota')) {
+          errorContent = 'OpenAI API quota exceeded. Please check your OpenAI billing and add credits to continue.';
+          toastMessage = 'API quota exceeded. Please check your OpenAI billing.';
+        } else if (error.message.includes('invalid_api_key')) {
+          errorContent = 'OpenAI API key is invalid. Please check your API key configuration.';
+          toastMessage = 'Invalid API key. Please check configuration.';
+        } else if (error.message) {
+          errorContent = `Error: ${error.message}`;
+          toastMessage = error.message;
+        }
+      }
+      
+      toast.error(toastMessage);
       const errorMessage: Message = {
         id: `error-${Date.now()}`,
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: errorContent,
         role: 'assistant',
         timestamp: new Date()
       };
