@@ -1,6 +1,8 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
+const murfApiKey = Deno.env.get('MURF_API_KEY');
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -18,41 +20,51 @@ serve(async (req) => {
       throw new Error('Text is required');
     }
 
-    console.log('Processing text-to-speech request:', { textLength: text.length, voice });
+    console.log('Processing text-to-speech request with Murf AI:', { textLength: text.length, voice });
 
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+    if (!murfApiKey) {
+      throw new Error('Murf AI API key not configured');
     }
 
-    // Generate speech from text using OpenAI TTS
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    // Generate speech from text using Murf AI
+    const response = await fetch('https://api.murf.ai/v1/speech/generate', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
+        'api-key': murfApiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'tts-1',
-        input: text,
-        voice: voice || 'alloy',
-        response_format: 'mp3',
+        text: text,
+        voiceId: voice || 'en-US-sarah', // Default to Sarah voice if none specified
+        audioDuration: 0, // Let Murf determine the duration
       }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      console.error('OpenAI TTS error:', error);
-      throw new Error(error.error?.message || 'Failed to generate speech');
+      const errorText = await response.text();
+      console.error('Murf API error:', errorText);
+      throw new Error(`Murf API error: ${errorText}`);
     }
 
-    // Convert audio buffer to base64
-    const arrayBuffer = await response.arrayBuffer();
+    const result = await response.json();
+    console.log('Murf API response received:', { audioFile: result.audioFile });
+
+    if (!result.audioFile) {
+      throw new Error('No audio file URL returned from Murf API');
+    }
+
+    // Download the audio file from Murf's URL
+    const audioResponse = await fetch(result.audioFile);
+    if (!audioResponse.ok) {
+      throw new Error('Failed to download audio from Murf');
+    }
+
+    const arrayBuffer = await audioResponse.arrayBuffer();
     const base64Audio = btoa(
       String.fromCharCode(...new Uint8Array(arrayBuffer))
     );
 
-    console.log('Text-to-speech successful');
+    console.log('Text-to-speech successful with Murf AI');
 
     return new Response(
       JSON.stringify({ audioContent: base64Audio }),
