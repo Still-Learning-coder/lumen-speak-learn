@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { Hero } from '@/components/Hero';
+import { ChatBot } from '@/components/ChatBot';
 import { UserCheck, LogOut, Settings } from 'lucide-react';
 
 const Index = () => {
@@ -58,6 +59,7 @@ const Index = () => {
       {/* Main Content */}
       <main className="pt-20">
         <Hero />
+        <ChatBot />
       </main>
     </div>
   );
