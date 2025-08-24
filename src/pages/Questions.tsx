@@ -259,6 +259,28 @@ const Questions = () => {
       })));
     }
   };
+  // Clean text by removing markdown formatting and symbols
+  const cleanTextForSpeech = (text: string): string => {
+    return text
+      // Remove markdown bold/italic formatting
+      .replace(/\*\*([^*]+)\*\*/g, '$1')
+      .replace(/\*([^*]+)\*/g, '$1')
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/_([^_]+)_/g, '$1')
+      // Remove markdown headers
+      .replace(/#+\s/g, '')
+      // Remove markdown links but keep text
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      // Remove markdown code blocks
+      .replace(/```[^`]*```/g, '')
+      .replace(/`([^`]+)`/g, '$1')
+      // Remove bullet points and dashes
+      .replace(/^[-*+]\s/gm, '')
+      // Remove multiple spaces and normalize whitespace
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   const handleReadAloud = async (messageId: string, content: string) => {
     if (isMuted) {
       toast.info('Audio is muted. Unmute to hear the response.');
@@ -280,7 +302,8 @@ const Questions = () => {
     // Generate audio for the first time
     setIsProcessing(true);
     try {
-      const audioUrl = await generateAudio(content);
+      const cleanedContent = cleanTextForSpeech(content);
+      const audioUrl = await generateAudio(cleanedContent);
       if (audioUrl && audioUrl !== 'web-speech-synthesis') {
         // Update message with audio URL and play
         setMessages(prev => prev.map(msg => msg.id === messageId ? {
