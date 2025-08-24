@@ -237,8 +237,8 @@ const Questions = () => {
       // Auto-play audio if available and not muted
       if (audioUrl && !isMuted) {
         if (audioUrl === 'web-speech-synthesis') {
-          // Web Speech API already played the audio
-          assistantMessage.audioUrl = '';
+          // Web Speech API already played the audio - no need to store URL for playback
+          // but keep the message content intact
         } else {
           setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
         }
