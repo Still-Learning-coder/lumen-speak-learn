@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+const assemblyAIApiKey = Deno.env.get('ASSEMBLYAI_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -50,42 +50,99 @@ serve(async (req) => {
       throw new Error('No audio data provided');
     }
 
-    console.log('Processing speech-to-text request...');
+    console.log('Processing speech-to-text request with AssemblyAI...');
 
-    if (!openAIApiKey) {
-      throw new Error('OpenAI API key not configured');
+    if (!assemblyAIApiKey) {
+      throw new Error('AssemblyAI API key not configured');
     }
 
     // Process audio in chunks
     const binaryAudio = processBase64Chunks(audio);
     
-    // Prepare form data
-    const formData = new FormData();
-    const blob = new Blob([binaryAudio], { type: 'audio/webm' });
-    formData.append('file', blob, 'audio.webm');
-    formData.append('model', 'whisper-1');
-    formData.append('language', 'en');
-
-    // Send to OpenAI Whisper
-    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    // Step 1: Upload the audio file to AssemblyAI
+    const uploadResponse = await fetch('https://api.assemblyai.com/v2/upload', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
+        'Authorization': assemblyAIApiKey,
+        'Content-Type': 'application/octet-stream',
       },
-      body: formData,
+      body: binaryAudio,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('OpenAI API error:', errorText);
-      throw new Error(`OpenAI API error: ${errorText}`);
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      console.error('AssemblyAI upload error:', errorText);
+      throw new Error(`AssemblyAI upload error: ${errorText}`);
     }
 
-    const result = await response.json();
-    console.log('Speech-to-text successful:', result.text);
+    const uploadResult = await uploadResponse.json();
+    const audioUrl = uploadResult.upload_url;
+
+    console.log('Audio uploaded successfully, URL:', audioUrl);
+
+    // Step 2: Submit the transcription request
+    const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: {
+        'Authorization': assemblyAIApiKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio_url: audioUrl,
+        language_code: 'en_us', // You can make this configurable
+      }),
+    });
+
+    if (!transcriptResponse.ok) {
+      const errorText = await transcriptResponse.text();
+      console.error('AssemblyAI transcript error:', errorText);
+      throw new Error(`AssemblyAI transcript error: ${errorText}`);
+    }
+
+    const transcriptResult = await transcriptResponse.json();
+    const transcriptId = transcriptResult.id;
+
+    console.log('Transcription submitted, ID:', transcriptId);
+
+    // Step 3: Poll for the transcription result
+    let transcript;
+    let attempts = 0;
+    const maxAttempts = 30; // 30 seconds timeout
+
+    while (attempts < maxAttempts) {
+      const pollResponse = await fetch(`https://api.assemblyai.com/v2/transcript/${transcriptId}`, {
+        headers: {
+          'Authorization': assemblyAIApiKey,
+        },
+      });
+
+      if (!pollResponse.ok) {
+        const errorText = await pollResponse.text();
+        console.error('AssemblyAI poll error:', errorText);
+        throw new Error(`AssemblyAI poll error: ${errorText}`);
+      }
+
+      transcript = await pollResponse.json();
+
+      if (transcript.status === 'completed') {
+        break;
+      } else if (transcript.status === 'error') {
+        throw new Error(`Transcription failed: ${transcript.error}`);
+      }
+
+      // Wait 1 second before polling again
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      attempts++;
+    }
+
+    if (attempts >= maxAttempts) {
+      throw new Error('Transcription timeout - please try again');
+    }
+
+    console.log('Speech-to-text successful:', transcript.text);
 
     return new Response(
-      JSON.stringify({ text: result.text }),
+      JSON.stringify({ text: transcript.text || '' }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
 
