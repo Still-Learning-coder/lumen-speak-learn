@@ -164,8 +164,85 @@ const Questions = () => {
 
       const transcribedText = transcriptionData.text;
       if (transcribedText.trim()) {
-        setInputText(transcribedText);
-        toast.success('Voice converted to text!');
+        // Add the transcribed text as a user message first
+        const userMessage: Message = {
+          id: Date.now().toString(),
+          content: transcribedText.trim(),
+          role: 'user',
+          timestamp: new Date(),
+        };
+        
+        setMessages(prev => [...prev, userMessage]);
+        setInputText(''); // Clear input field
+        toast.success('Voice converted to text and sent!');
+        
+        // Process with sendQuestion logic instead of calling sendQuestion() to avoid double user message
+        try {
+          // Get AI response
+          const { data: responseData, error: responseError } = await supabase.functions.invoke('chat-completion', {
+            body: {
+              message: transcribedText.trim(),
+              conversationHistory: messages.map(msg => ({
+                role: msg.role,
+                content: msg.content
+              }))
+            }
+          });
+
+          if (responseError) {
+            throw new Error(responseError.message);
+          }
+
+          const assistantResponse = responseData.response;
+
+          // Generate audio for the response if not muted
+          let audioUrl = '';
+          if (!isMuted) {
+            try {
+              const { data: audioData, error: audioError } = await supabase.functions.invoke('text-to-speech', {
+                body: { 
+                  text: assistantResponse,
+                  voice: 'alloy' 
+                }
+              });
+
+              if (!audioError && audioData.audioContent) {
+                audioUrl = `data:audio/mp3;base64,${audioData.audioContent}`;
+              }
+            } catch (audioError) {
+              console.error('Audio generation failed:', audioError);
+              // Continue without audio
+            }
+          }
+
+          const assistantMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            content: assistantResponse,
+            role: 'assistant',
+            timestamp: new Date(),
+            audioUrl: audioUrl,
+            isPlaying: false
+          };
+
+          setMessages(prev => [...prev, assistantMessage]);
+
+          // Auto-play audio if available and not muted
+          if (audioUrl && !isMuted) {
+            setTimeout(() => playAudio(assistantMessage.id, audioUrl), 500);
+          }
+
+        } catch (responseError) {
+          console.error('Error getting response:', responseError);
+          toast.error('Failed to get response. Please try again.');
+          
+          const errorMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            content: 'Sorry, I encountered an error. Please try again.',
+            role: 'assistant',
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        }
       } else {
         toast.error('No speech detected. Please try again.');
       }
