@@ -218,7 +218,7 @@ const Questions = () => {
           const { data: audioData, error: audioError } = await supabase.functions.invoke('text-to-speech', {
             body: { 
               text: assistantResponse,
-              voice: 'en-US-natalie' // Using Murf AI voice ID
+              voice: '9BWtsMINqrJLrRacOk9x' // Using ElevenLabs Aria voice ID
             }
           });
 

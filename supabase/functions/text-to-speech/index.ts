@@ -1,7 +1,7 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 
-const murfApiKey = Deno.env.get('MURF_API_KEY');
+const elevenlabsApiKey = Deno.env.get('ELEVENLABS_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -20,51 +20,47 @@ serve(async (req) => {
       throw new Error('Text is required');
     }
 
-    console.log('Processing text-to-speech request with Murf AI:', { textLength: text.length, voice });
+    console.log('Processing text-to-speech request with ElevenLabs:', { textLength: text.length, voice });
 
-    if (!murfApiKey) {
-      throw new Error('Murf AI API key not configured');
+    if (!elevenlabsApiKey) {
+      throw new Error('ElevenLabs API key not configured');
     }
 
-    // Generate speech from text using Murf AI
-    const response = await fetch('https://api.murf.ai/v1/speech/generate', {
+    // Use a default voice if none specified (Aria - high quality voice)
+    const voiceId = voice || '9BWtsMINqrJLrRacOk9x'; // Aria voice ID
+
+    // Generate speech from text using ElevenLabs
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
-        'api-key': murfApiKey,
+        'xi-api-key': elevenlabsApiKey,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
         text: text,
-        voiceId: voice || 'en-US-natalie', // Default to Natalie voice if none specified
-        audioDuration: 0, // Let Murf determine the duration
+        model_id: 'eleven_turbo_v2', // Fast, high-quality model
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true,
+        },
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Murf API error:', errorText);
-      throw new Error(`Murf API error: ${errorText}`);
+      console.error('ElevenLabs API error:', errorText);
+      throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
-    const result = await response.json();
-    console.log('Murf API response received:', { audioFile: result.audioFile });
-
-    if (!result.audioFile) {
-      throw new Error('No audio file URL returned from Murf API');
-    }
-
-    // Download the audio file from Murf's URL
-    const audioResponse = await fetch(result.audioFile);
-    if (!audioResponse.ok) {
-      throw new Error('Failed to download audio from Murf');
-    }
-
-    const arrayBuffer = await audioResponse.arrayBuffer();
+    // Convert audio buffer to base64
+    const arrayBuffer = await response.arrayBuffer();
     const base64Audio = btoa(
       String.fromCharCode(...new Uint8Array(arrayBuffer))
     );
 
-    console.log('Text-to-speech successful with Murf AI');
+    console.log('Text-to-speech successful with ElevenLabs');
 
     return new Response(
       JSON.stringify({ audioContent: base64Audio }),
