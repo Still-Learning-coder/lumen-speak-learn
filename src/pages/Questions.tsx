@@ -18,6 +18,7 @@ interface Message {
   audioUrl?: string;
   isPlaying?: boolean;
   generatedImageUrl?: string;
+  conversationId?: string;
 }
 
 // Audio recorder class
@@ -89,10 +90,110 @@ const Questions = () => {
   const [generatedImages, setGeneratedImages] = useState<Map<string, string>>(new Map());
   const [imageGenerating, setImageGenerating] = useState<Set<string>>(new Set());
   const [webSpeechSupported, setWebSpeechSupported] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const recorderRef = useRef<AudioRecorder | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isPremium = profile?.premium_until && new Date(profile.premium_until) > new Date();
+
+  useEffect(() => {
+    if (!user) {
+      // Don't redirect to auth, just disable functionality
+      return;
+    }
+    
+    // Create new conversation when component mounts
+    createNewConversation();
+  }, [user]);
+
+  const createNewConversation = async () => {
+    if (!user) return;
+    
+    try {
+      const { data: conversation, error } = await supabase
+        .from('conversations')
+        .insert({
+          user_id: user.id,
+          title: 'New Conversation'
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      
+      setCurrentConversationId(conversation.id);
+      setMessages([]);
+    } catch (error) {
+      console.error('Error creating conversation:', error);
+      toast.error('Failed to create conversation');
+    }
+  };
+
+  const saveMessageToDatabase = async (message: Message): Promise<string | null> => {
+    if (!currentConversationId || !user) return null;
+    
+    try {
+      const { data, error } = await supabase
+        .from('conversation_messages')
+        .insert({
+          conversation_id: currentConversationId,
+          content: message.content,
+          role: message.role,
+          audio_url: message.audioUrl,
+          is_playing: message.isPlaying || false
+        })
+        .select()
+        .single();
+        
+      if (error) throw error;
+      return data.id;
+    } catch (error) {
+      console.error('Error saving message:', error);
+      return null;
+    }
+  };
+
+  const saveGeneratedImageToDatabase = async (
+    messageId: string, 
+    imageUrl: string, 
+    imagePrompt: string, 
+    userQuestion: string, 
+    aiResponse: string
+  ) => {
+    if (!user) return;
+    
+    try {
+      await supabase
+        .from('generated_images')
+        .insert({
+          message_id: messageId,
+          image_url: imageUrl,
+          image_prompt: imagePrompt,
+          user_question: userQuestion,
+          ai_response: aiResponse,
+          provider: 'huggingface'
+        });
+    } catch (error) {
+      console.error('Error saving generated image:', error);
+    }
+  };
+
+  const saveAudioToDatabase = async (messageId: string, audioUrl: string, provider: string, voiceId?: string) => {
+    if (!user) return;
+    
+    try {
+      await supabase
+        .from('conversation_audio')
+        .insert({
+          message_id: messageId,
+          audio_url: audioUrl,
+          voice_provider: provider,
+          voice_id: voiceId
+        });
+    } catch (error) {
+      console.error('Error saving audio:', error);
+    }
+  };
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
@@ -164,22 +265,37 @@ const Questions = () => {
   };
   const sendQuestion = async () => {
     if (!inputText.trim() || isProcessing) return;
+    
     const userMessage: Message = {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}`,
       content: inputText.trim(),
       role: 'user',
       timestamp: new Date()
     };
+
     setMessages(prev => [...prev, userMessage]);
+    
+    // Save user message to database if user is logged in
+    let savedUserMessageId = userMessage.id;
+    if (user && currentConversationId) {
+      const dbMessageId = await saveMessageToDatabase(userMessage);
+      if (dbMessageId) {
+        savedUserMessageId = dbMessageId;
+        setMessages(prev => prev.map(msg => 
+          msg.id === userMessage.id 
+            ? { ...msg, id: savedUserMessageId }
+            : msg
+        ));
+      }
+    }
+
     const currentQuestion = inputText.trim();
     setInputText('');
     setIsProcessing(true);
+    
     try {
       // Get AI response
-      const {
-        data: responseData,
-        error: responseError
-      } = await supabase.functions.invoke('chat-completion', {
+      const { data: responseData, error: responseError } = await supabase.functions.invoke('chat-completion', {
         body: {
           message: currentQuestion,
           conversationHistory: messages.map(msg => ({
@@ -188,26 +304,42 @@ const Questions = () => {
           }))
         }
       });
+      
       if (responseError) {
         throw new Error(responseError.message);
       }
+      
       const assistantResponse = responseData.response;
 
-      // Create and add message (text-only by default)
+      // Create and add assistant message
       const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `assistant-${Date.now()}`,
         content: assistantResponse,
         role: 'assistant',
         timestamp: new Date(),
         audioUrl: '',
         isPlaying: false
       };
+      
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Save assistant message to database if user is logged in
+      if (user && currentConversationId) {
+        const dbMessageId = await saveMessageToDatabase(assistantMessage);
+        if (dbMessageId) {
+          setMessages(prev => prev.map(msg => 
+            msg.id === assistantMessage.id 
+              ? { ...msg, id: dbMessageId }
+              : msg
+          ));
+        }
+      }
+      
     } catch (error) {
       console.error('Error getting response:', error);
       toast.error('Failed to get response. Please try again.');
       const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: `error-${Date.now()}`,
         content: 'Sorry, I encountered an error. Please try again.',
         role: 'assistant',
         timestamp: new Date()
@@ -285,7 +417,7 @@ const Questions = () => {
   };
 
   const handleGenerateImage = async (messageId: string, userQuestion: string, aiResponse: string) => {
-    if (imageGenerating.has(messageId)) return;
+    if (imageGenerating.has(messageId) || !user) return;
 
     setImageGenerating(prev => new Set(prev).add(messageId));
 
@@ -312,7 +444,7 @@ const Questions = () => {
 
       const { imageUrl } = imageResponse.data;
 
-      // Store the generated image
+      // Store the generated image in local state
       setGeneratedImages(prev => new Map(prev).set(messageId, imageUrl));
 
       // Update the message with the generated image
@@ -321,6 +453,9 @@ const Questions = () => {
           ? { ...msg, generatedImageUrl: imageUrl }
           : msg
       ));
+
+      // Save the generated image to database
+      await saveGeneratedImageToDatabase(messageId, imageUrl, imagePrompt, userQuestion, aiResponse);
 
       toast.success('Image generated successfully!');
     } catch (error) {
@@ -364,7 +499,25 @@ const Questions = () => {
           ...msg,
           audioUrl
         } : msg));
+        
+        // Save audio to database if user is logged in
+        if (user) {
+          await saveAudioToDatabase(messageId, audioUrl, 'external-tts');
+        }
+        
         setTimeout(() => playAudio(messageId, audioUrl), 100);
+      } else if (audioUrl === 'web-speech-synthesis') {
+        // Mark that web speech synthesis was used
+        setMessages(prev => prev.map(msg => msg.id === messageId ? {
+          ...msg,
+          audioUrl: 'web-speech-synthesis',
+          isPlaying: false
+        } : msg));
+        
+        // Save web speech info to database if user is logged in
+        if (user) {
+          await saveAudioToDatabase(messageId, 'web-speech-synthesis', 'web-speech-api');
+        }
       }
       // For web-speech-synthesis, audio already played during generation
     } catch (error) {
