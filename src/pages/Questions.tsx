@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -390,7 +392,63 @@ const Questions = () => {
                         : 'bg-muted'
                     }`}
                   >
-                    <p className="whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'assistant' ? (
+                      <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground prose-code:text-foreground prose-pre:bg-muted-foreground/10 prose-pre:text-foreground">
+                        <ReactMarkdown 
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            code: ({ className, children, ...props }: any) => {
+                              const isInline = !className || !className.includes('language-');
+                              if (isInline) {
+                                return (
+                                  <code 
+                                    className="bg-muted-foreground/20 text-foreground px-1 py-0.5 rounded text-sm" 
+                                    {...props}
+                                  >
+                                    {children}
+                                  </code>
+                                );
+                              }
+                              return (
+                                <pre className="bg-muted-foreground/10 p-3 rounded-lg overflow-x-auto">
+                                  <code className="text-sm" {...props}>
+                                    {children}
+                                  </code>
+                                </pre>
+                              );
+                            },
+                            ul: ({ children }) => (
+                              <ul className="list-disc list-inside space-y-1 my-2">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="list-decimal list-inside space-y-1 my-2">
+                                {children}
+                              </ol>
+                            ),
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-4 border-primary/50 pl-4 italic my-2">
+                                {children}
+                              </blockquote>
+                            ),
+                            h1: ({ children }) => (
+                              <h1 className="text-lg font-bold mt-4 mb-2">{children}</h1>
+                            ),
+                            h2: ({ children }) => (
+                              <h2 className="text-base font-bold mt-3 mb-2">{children}</h2>
+                            ),
+                            h3: ({ children }) => (
+                              <h3 className="text-sm font-bold mt-2 mb-1">{children}</h3>
+                            ),
+                          }}
+                        >
+                          {message.content}
+                        </ReactMarkdown>
+                      </div>
+                    ) : (
+                      <p className="whitespace-pre-wrap">{message.content}</p>
+                    )}
                     
                     {message.role === 'assistant' && message.audioUrl && (
                       <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">

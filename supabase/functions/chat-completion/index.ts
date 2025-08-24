@@ -31,7 +31,7 @@ serve(async (req) => {
     const messages = [
       {
         role: 'system',
-        content: 'You are a helpful AI assistant. Provide clear, concise, and helpful responses. Be friendly and engaging while staying focused on the user\'s questions.'
+        content: 'You are a helpful AI assistant. Provide clear, well-formatted responses using markdown for better readability. Use **bold** for emphasis, *italics* for subtle emphasis, bullet points for lists, and code blocks for technical content. Be friendly and engaging while staying focused on the user\'s questions.'
       },
       ...conversationHistory,
       {
