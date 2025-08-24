@@ -15,9 +15,9 @@ serve(async (req) => {
   }
 
   try {
-    const { message, conversationHistory = [] } = await req.json();
+    const { message, conversationHistory = [], files = [] } = await req.json();
 
-    console.log('Chat completion request:', { message, historyLength: conversationHistory.length });
+    console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
 
     if (!openAIApiKey) {
       console.error('OpenAI API key not found');
@@ -31,14 +31,45 @@ serve(async (req) => {
     const messages = [
       {
         role: 'system',
-        content: 'You are a helpful AI assistant. Provide clear, well-formatted responses using markdown for better readability. Use **bold** for emphasis, *italics* for subtle emphasis, bullet points for lists, and code blocks for technical content. Be friendly and engaging while staying focused on the user\'s questions.'
+        content: 'You are a helpful AI assistant. Provide clear, well-formatted responses using markdown for better readability. Use **bold** for emphasis, *italics* for subtle emphasis, bullet points for lists, and code blocks for technical content. Be friendly and engaging while staying focused on the user\'s questions. When analyzing images, provide detailed descriptions and insights.'
       },
       ...conversationHistory,
-      {
-        role: 'user',
-        content: message
-      }
     ];
+
+    // Build user message content - handle files if present
+    let userMessageContent;
+    if (files && files.length > 0) {
+      // Create multimodal content array
+      userMessageContent = [
+        {
+          type: 'text',
+          text: message || 'Please analyze the uploaded files.'
+        }
+      ];
+
+      // Add each file as an image or document
+      for (const file of files) {
+        if (file.type?.startsWith('image/')) {
+          userMessageContent.push({
+            type: 'image_url',
+            image_url: {
+              url: file.data, // base64 data URL
+              detail: 'high'
+            }
+          });
+        } else {
+          // For non-image files, add as text description
+          userMessageContent[0].text += `\n\nAttached file: ${file.name} (${file.type || 'unknown type'})`;
+        }
+      }
+    } else {
+      userMessageContent = message;
+    }
+
+    messages.push({
+      role: 'user',
+      content: userMessageContent
+    });
 
     console.log('Sending request to OpenAI...');
 

@@ -264,8 +264,17 @@ const Questions = () => {
       setIsProcessing(false);
     }
   };
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  };
+
   const sendQuestion = async () => {
-    if (!inputText.trim() || isProcessing) return;
+    if ((!inputText.trim() && selectedFiles.length === 0) || isProcessing) return;
     
     const userMessage: Message = {
       id: `user-${Date.now()}`,
@@ -291,14 +300,26 @@ const Questions = () => {
     }
 
     const currentQuestion = inputText.trim();
+    const currentFiles = [...selectedFiles];
     setInputText('');
+    setSelectedFiles([]);
     setIsProcessing(true);
     
     try {
+      // Convert files to base64 for sending to AI
+      const filesForAI = await Promise.all(
+        currentFiles.map(async (file) => ({
+          name: file.name,
+          type: file.type,
+          data: await fileToBase64(file)
+        }))
+      );
+
       // Get AI response
       const { data: responseData, error: responseError } = await supabase.functions.invoke('chat-completion', {
         body: {
           message: currentQuestion,
+          files: filesForAI,
           conversationHistory: messages.map(msg => ({
             role: msg.role,
             content: msg.content
@@ -871,7 +892,7 @@ const Questions = () => {
                       </Badge>}
                   </div>
                   
-                  <Button onClick={sendQuestion} disabled={!inputText.trim() || isProcessing} className="bg-primary hover:bg-primary/90">
+                  <Button onClick={sendQuestion} disabled={(!inputText.trim() && selectedFiles.length === 0) || isProcessing} className="bg-primary hover:bg-primary/90">
                     {isProcessing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Send className="h-4 w-4 mr-2" />}
                     Send Question
                   </Button>
