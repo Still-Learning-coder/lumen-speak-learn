@@ -19,9 +19,10 @@ serve(async (req) => {
 
     console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
     console.log('OpenAI API key configured:', !!openAIApiKey);
+    console.log('API key length:', openAIApiKey ? openAIApiKey.length : 0);
 
     if (!openAIApiKey) {
-      console.error('OpenAI API key not found');
+      console.error('OpenAI API key not found - edge function redeployed to pick up new secrets');
       return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -81,10 +82,9 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o-mini',
+        model: 'gpt-5-mini-2025-08-07',
         messages: messages,
-        max_tokens: 500,
-        temperature: 0.7,
+        max_completion_tokens: 500,
       }),
     });
 
