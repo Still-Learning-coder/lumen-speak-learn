@@ -331,6 +331,11 @@ const Questions = () => {
         throw new Error(responseError.message);
       }
       
+      // Check if the response data contains an error (from our edge function)
+      if (responseData.error) {
+        throw new Error(responseData.error);
+      }
+      
       const assistantResponse = responseData.response;
 
       // Create and add assistant message
@@ -468,6 +473,12 @@ const Questions = () => {
   const handleGenerateImage = async (messageId: string, userQuestion: string, aiResponse: string) => {
     if (imageGenerating.has(messageId) || !user) return;
 
+    // Don't generate images for error messages or empty responses
+    if (!aiResponse || aiResponse.trim().length === 0 || aiResponse.includes('Error:') || aiResponse.includes('rate limit') || aiResponse.includes('quota exceeded')) {
+      toast.error('Cannot generate image for error messages or empty responses');
+      return;
+    }
+
     setImageGenerating(prev => new Set(prev).add(messageId));
 
     try {
@@ -540,9 +551,15 @@ const Questions = () => {
       return;
     }
 
-    // Validate content parameter
-    if (!content || typeof content !== 'string') {
+    // Validate content parameter and check for error messages
+    if (!content || typeof content !== 'string' || content.trim().length === 0) {
       toast.error('No content available for audio generation');
+      return;
+    }
+
+    // Don't generate audio for error messages
+    if (content.includes('Error:') || content.includes('rate limit') || content.includes('quota exceeded') || content.includes('API key')) {
+      toast.error('Cannot generate audio for error messages');
       return;
     }
 
