@@ -439,6 +439,12 @@ const Questions = () => {
   };
   // Clean text by removing markdown formatting and symbols
   const cleanTextForSpeech = (text: string): string => {
+    // Safety check for undefined or null text
+    if (!text || typeof text !== 'string') {
+      console.warn('cleanTextForSpeech received invalid text:', text);
+      return '';
+    }
+    
     return text
       // Remove markdown bold/italic formatting
       .replace(/\*\*([^*]+)\*\*/g, '$1')
@@ -465,13 +471,23 @@ const Questions = () => {
     setImageGenerating(prev => new Set(prev).add(messageId));
 
     try {
+      // Validate inputs
+      if (!userQuestion || !aiResponse) {
+        throw new Error('Missing question or response for image generation');
+      }
+
       // First, generate the image prompt
       const promptResponse = await supabase.functions.invoke('generate-image-prompt', {
         body: { userQuestion, aiResponse }
       });
 
       if (promptResponse.error) {
+        console.error('Image prompt generation error:', promptResponse.error);
         throw new Error(promptResponse.error.message || 'Failed to generate image prompt');
+      }
+
+      if (!promptResponse.data?.imagePrompt) {
+        throw new Error('No image prompt received from server');
       }
 
       const { imagePrompt } = promptResponse.data;
@@ -482,7 +498,12 @@ const Questions = () => {
       });
 
       if (imageResponse.error) {
+        console.error('Image generation error:', imageResponse.error);
         throw new Error(imageResponse.error.message || 'Failed to generate image');
+      }
+
+      if (!imageResponse.data?.imageUrl) {
+        throw new Error('No image URL received from server');
       }
 
       const { imageUrl } = imageResponse.data;
@@ -516,6 +537,12 @@ const Questions = () => {
   const handleReadAloud = async (messageId: string, content: string) => {
     if (isMuted) {
       toast.info('Audio is muted. Unmute to hear the response.');
+      return;
+    }
+
+    // Validate content parameter
+    if (!content || typeof content !== 'string') {
+      toast.error('No content available for audio generation');
       return;
     }
 
