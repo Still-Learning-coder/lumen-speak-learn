@@ -18,6 +18,7 @@ serve(async (req) => {
     const { message, conversationHistory = [], files = [] } = await req.json();
 
     console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
+    console.log('OpenAI API key configured:', !!openAIApiKey);
 
     if (!openAIApiKey) {
       console.error('OpenAI API key not found');
