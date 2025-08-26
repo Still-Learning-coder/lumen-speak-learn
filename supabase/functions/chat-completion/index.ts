@@ -24,9 +24,10 @@ serve(async (req) => {
     console.log('OpenAI API key configured:', !!openAIApiKey);
     console.log('API key length:', openAIApiKey ? openAIApiKey.length : 0);
 
-    if (!openAIApiKey) {
-      console.error('OpenAI API key not found - edge function redeployed to pick up new secrets');
-      return new Response(JSON.stringify({ error: 'OpenAI API key not configured' }), {
+    // Better API key validation
+    if (!openAIApiKey || openAIApiKey.trim() === '') {
+      console.error('OpenAI API key not found or empty - edge function redeployed to pick up new secrets');
+      return new Response(JSON.stringify({ error: 'OpenAI API key not configured properly' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
@@ -118,12 +119,29 @@ serve(async (req) => {
       });
     }
 
+    // Check if response has the expected structure
+    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+      console.error('Invalid OpenAI response structure:', JSON.stringify(data, null, 2));
+      return new Response(JSON.stringify({ 
+        error: 'Invalid response structure from OpenAI',
+        openaiResponse: data
+      }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     const assistantMessage = data.choices[0].message.content;
+
+    // Use the actual content that was sent to OpenAI for conversation history
+    const userContentForHistory = typeof userMessageContent === 'string' 
+      ? userMessageContent 
+      : message || 'Message with attachments';
 
     return new Response(JSON.stringify({ 
       response: assistantMessage,
       conversationHistory: [...conversationHistory, 
-        { role: 'user', content: message },
+        { role: 'user', content: userContentForHistory },
         { role: 'assistant', content: assistantMessage }
       ]
     }), {
