@@ -4,12 +4,23 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 console.log('Chat completion function starting - comprehensive debug');
 console.log('All environment variables:', Object.keys(Deno.env.toObject()));
 console.log('OPENAI_API_KEY exists:', 'OPENAI_API_KEY' in Deno.env.toObject());
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
+
+function jsonResponse(obj: any, status = 200) {
+  return new Response(JSON.stringify(obj), {
+    status,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  });
+}
+
+function safeSlice(s: string, n = 800) {
+  return s.length > n ? s.slice(0, n) + '…' : s;
+}
 
 serve(async (req) => {
   // Handle CORS preflight requests
@@ -18,20 +29,25 @@ serve(async (req) => {
   }
 
   try {
-    const { message, conversationHistory = [], files = [] } = await req.json();
-
-    console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    
     console.log('OpenAI API key configured:', !!openAIApiKey);
     console.log('API key length:', openAIApiKey ? openAIApiKey.length : 0);
+    console.log('API key first/last 4 chars:', openAIApiKey ? `${openAIApiKey.slice(0, 4)}...${openAIApiKey.slice(-4)}` : 'none');
 
     // Better API key validation
-    if (!openAIApiKey || openAIApiKey.trim() === '') {
-      console.error('OpenAI API key not found or empty - edge function redeployed to pick up new secrets');
-      return new Response(JSON.stringify({ error: 'OpenAI API key not configured properly' }), {
-        status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    if (!openAIApiKey || openAIApiKey.trim() === '' || openAIApiKey.length < 10) {
+      console.error('OpenAI API key validation failed - key missing, empty, or too short');
+      return jsonResponse({ error: 'Server misconfiguration: OPENAI_API_KEY is missing or invalid' }, 500);
     }
+
+    const { message, conversationHistory = [], files = [] } = await req.json().catch(() => ({}));
+
+    if (!message) {
+      return jsonResponse({ error: 'Missing "message" in request body' }, 400);
+    }
+
+    console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
 
     // Build messages array with conversation history
     const messages = [
@@ -78,7 +94,6 @@ serve(async (req) => {
     });
 
     console.log('Sending request to OpenAI...');
-
     console.log('Making request to OpenAI with model: gpt-4o-mini');
     
     const requestBody = {
@@ -102,33 +117,28 @@ serve(async (req) => {
     console.log('OpenAI response status:', response.status);
     console.log('OpenAI response headers:', Object.fromEntries(response.headers.entries()));
 
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('OpenAI upstream error', response.status, errorText);
+      
+      return jsonResponse({ 
+        error: 'OpenAI upstream error',
+        status: response.status,
+        details: safeSlice(errorText),
+        openaiStatus: response.status
+      }, response.status >= 500 ? 502 : 400);
+    }
+
     const data = await response.json();
     console.log('OpenAI response data:', JSON.stringify(data, null, 2));
-
-    if (!response.ok) {
-      console.error('OpenAI API error - Status:', response.status);
-      console.error('OpenAI API error - Data:', JSON.stringify(data, null, 2));
-      
-      return new Response(JSON.stringify({ 
-        error: `OpenAI API Error (${response.status}): ${data.error?.message || JSON.stringify(data)}`,
-        openaiStatus: response.status,
-        openaiResponse: data
-      }), {
-        status: 200, // Return 200 so client can handle the error properly
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
 
     // Check if response has the expected structure
     if (!data.choices || !data.choices[0] || !data.choices[0].message) {
       console.error('Invalid OpenAI response structure:', JSON.stringify(data, null, 2));
-      return new Response(JSON.stringify({ 
+      return jsonResponse({ 
         error: 'Invalid response structure from OpenAI',
         openaiResponse: data
-      }), {
-        status: 200,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+      }, 502);
     }
 
     const assistantMessage = data.choices[0].message.content;
@@ -138,20 +148,19 @@ serve(async (req) => {
       ? userMessageContent 
       : message || 'Message with attachments';
 
-    return new Response(JSON.stringify({ 
+    return jsonResponse({ 
       response: assistantMessage,
       conversationHistory: [...conversationHistory, 
         { role: 'user', content: userContentForHistory },
         { role: 'assistant', content: assistantMessage }
       ]
-    }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
+
   } catch (error) {
-    console.error('Error in chat-completion function:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    });
+    console.error('Edge function crashed:', error);
+    return jsonResponse({ 
+      error: 'Edge function crashed', 
+      details: String(error?.message || error) 
+    }, 500);
   }
 });
