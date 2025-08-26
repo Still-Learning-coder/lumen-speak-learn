@@ -78,27 +78,40 @@ serve(async (req) => {
 
     console.log('Sending request to OpenAI...');
 
+    console.log('Making request to OpenAI with model: gpt-4o-mini');
+    
+    const requestBody = {
+      model: 'gpt-4o-mini',
+      messages: messages,
+      max_tokens: 500,
+      temperature: 0.7,
+    };
+    
+    console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${openAIApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: messages,
-        max_tokens: 500,
-        temperature: 0.7,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
+    console.log('OpenAI response status:', response.status);
+    console.log('OpenAI response headers:', Object.fromEntries(response.headers.entries()));
+
     const data = await response.json();
-    console.log('OpenAI response received');
+    console.log('OpenAI response data:', JSON.stringify(data, null, 2));
 
     if (!response.ok) {
-      console.error('OpenAI API error:', data);
+      console.error('OpenAI API error - Status:', response.status);
+      console.error('OpenAI API error - Data:', JSON.stringify(data, null, 2));
+      
       return new Response(JSON.stringify({ 
-        error: data.error?.message || 'Failed to get response from OpenAI'
+        error: `OpenAI API Error (${response.status}): ${data.error?.message || JSON.stringify(data)}`,
+        openaiStatus: response.status,
+        openaiResponse: data
       }), {
         status: 200, // Return 200 so client can handle the error properly
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
