@@ -1,9 +1,26 @@
 import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-console.log('Chat completion function starting - comprehensive debug');
-console.log('All environment variables:', Object.keys(Deno.env.toObject()));
-console.log('OPENAI_API_KEY exists:', 'OPENAI_API_KEY' in Deno.env.toObject());
+console.log(`[${new Date().toISOString()}] Chat completion function starting`);
+const envKeys = Object.keys(Deno.env.toObject());
+console.log('Environment variables:', envKeys);
+console.log('OPENAI_API_KEY exists:', envKeys.includes('OPENAI_API_KEY'));
+
+// Get API key immediately and log details
+const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+console.log('API key retrieved:', !!openAIApiKey);
+console.log('API key length:', openAIApiKey?.length || 0);
+console.log('API key value (first 10 chars):', openAIApiKey?.substring(0, 10) || 'NONE');
+
+if (!openAIApiKey) {
+  console.error('CRITICAL: OpenAI API key is not set!');
+} else if (openAIApiKey.trim().length === 0) {
+  console.error('CRITICAL: OpenAI API key is empty string!');
+} else if (openAIApiKey.length < 20) {
+  console.error('CRITICAL: OpenAI API key seems too short!');
+} else {
+  console.log('API key looks valid (length check passed)');
+}
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -29,17 +46,38 @@ serve(async (req) => {
   }
 
   try {
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    console.log(`[${new Date().toISOString()}] Processing request...`);
     
-    console.log('OpenAI API key configured:', !!openAIApiKey);
-    console.log('API key length:', openAIApiKey ? openAIApiKey.length : 0);
-    console.log('API key first/last 4 chars:', openAIApiKey ? `${openAIApiKey.slice(0, 4)}...${openAIApiKey.slice(-4)}` : 'none');
-
-    // Better API key validation
-    if (!openAIApiKey || openAIApiKey.trim() === '' || openAIApiKey.length < 10) {
-      console.error('OpenAI API key validation failed - key missing, empty, or too short');
-      return jsonResponse({ error: 'Server misconfiguration: OPENAI_API_KEY is missing or invalid' }, 500);
+    // Re-check API key in the request handler
+    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
+    console.log('In handler - API key configured:', !!openAIApiKey);
+    console.log('In handler - API key length:', openAIApiKey ? openAIApiKey.length : 0);
+    
+    if (!openAIApiKey) {
+      console.error('FATAL: No OPENAI_API_KEY found in environment');
+      return jsonResponse({ 
+        error: 'OPENAI_API_KEY not found',
+        debug: 'Environment variable OPENAI_API_KEY is not set'
+      }, 500);
     }
+    
+    if (openAIApiKey.trim() === '') {
+      console.error('FATAL: OPENAI_API_KEY is empty string');
+      return jsonResponse({ 
+        error: 'OPENAI_API_KEY is empty',
+        debug: 'Environment variable OPENAI_API_KEY is an empty string'
+      }, 500);
+    }
+    
+    if (openAIApiKey.length < 20) {
+      console.error('FATAL: OPENAI_API_KEY too short:', openAIApiKey.length);
+      return jsonResponse({ 
+        error: 'OPENAI_API_KEY too short',
+        debug: `API key length is ${openAIApiKey.length}, expected at least 20 characters`
+      }, 500);
+    }
+    
+    console.log('API key validation passed');
 
     const { message, conversationHistory = [], files = [] } = await req.json().catch(() => ({}));
 

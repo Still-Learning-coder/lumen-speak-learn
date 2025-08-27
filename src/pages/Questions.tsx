@@ -327,13 +327,22 @@ const Questions = () => {
         }
       });
       
+      console.log('Edge function response:', { responseData, responseError });
+      
       if (responseError) {
-        throw new Error(responseError.message);
+        console.error('Supabase function invoke error:', responseError);
+        throw new Error(`Function invoke error: ${responseError.message}`);
       }
       
       // Check if the response data contains an error (from our edge function)
-      if (responseData.error) {
-        throw new Error(responseData.error);
+      if (responseData && responseData.error) {
+        console.error('Edge function returned error:', responseData);
+        throw new Error(`Edge function error: ${responseData.error} - ${responseData.details || ''}`);
+      }
+      
+      if (!responseData) {
+        console.error('No response data received from edge function');
+        throw new Error('No response data received from edge function');
       }
       
       const assistantResponse = responseData.response;
