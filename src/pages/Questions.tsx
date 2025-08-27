@@ -496,21 +496,23 @@ const Questions = () => {
         throw new Error('Missing question or response for image generation');
       }
 
-      // First, generate the image prompt
-      const promptResponse = await supabase.functions.invoke('generate-image-prompt', {
-        body: { userQuestion, aiResponse }
-      });
+      // Try to generate the image prompt, but fallback to a simple prompt if it fails
+      let imagePrompt = `Visual illustration of: ${userQuestion}. Educational, clear, informative style.`;
+      
+      try {
+        const promptResponse = await supabase.functions.invoke('generate-image-prompt', {
+          body: { userQuestion, aiResponse }
+        });
 
-      if (promptResponse.error) {
-        console.error('Image prompt generation error:', promptResponse.error);
-        throw new Error(promptResponse.error.message || 'Failed to generate image prompt');
+        if (promptResponse.data?.imagePrompt && !promptResponse.error) {
+          imagePrompt = promptResponse.data.imagePrompt;
+          console.log('✅ Generated enhanced image prompt:', imagePrompt);
+        } else {
+          console.log('⚠️ Using fallback image prompt due to prompt generation error:', promptResponse.error);
+        }
+      } catch (promptError) {
+        console.log('⚠️ Using fallback image prompt due to prompt generation failure:', promptError);
       }
-
-      if (!promptResponse.data?.imagePrompt) {
-        throw new Error('No image prompt received from server');
-      }
-
-      const { imagePrompt } = promptResponse.data;
 
       // Then, generate the image using the prompt
       const imageResponse = await supabase.functions.invoke('image-generation', {
