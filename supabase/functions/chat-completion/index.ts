@@ -87,13 +87,30 @@ serve(async (req) => {
 
     console.log('Chat completion request:', { message, historyLength: conversationHistory.length, filesCount: files.length });
 
+    // Filter out error messages and validate conversation history
+    const validHistory = conversationHistory.filter((msg: any) => {
+      // Remove error messages, empty messages, and messages with invalid content
+      return msg && 
+             msg.role && 
+             msg.content && 
+             typeof msg.content === 'string' &&
+             msg.content.trim().length > 0 &&
+             !msg.content.includes('Error:') &&
+             !msg.content.includes('Function invoke error') &&
+             !msg.content.includes('Sorry, I encountered an error') &&
+             !msg.content.includes('rate limit exceeded') &&
+             !msg.content.includes('quota exceeded');
+    }).slice(-10); // Keep only last 10 messages to avoid token limits
+
+    console.log('Filtered history length:', validHistory.length);
+
     // Build messages array with conversation history
     const messages = [
       {
         role: 'system',
         content: 'You are a helpful AI assistant. Provide clear, well-formatted responses using markdown for better readability. Use **bold** for emphasis, *italics* for subtle emphasis, bullet points for lists, and code blocks for technical content. Be friendly and engaging while staying focused on the user\'s questions. When analyzing images, provide detailed descriptions and insights.'
       },
-      ...conversationHistory,
+      ...validHistory,
     ];
 
     // Build user message content - handle files if present
