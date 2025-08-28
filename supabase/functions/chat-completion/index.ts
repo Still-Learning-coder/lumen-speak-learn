@@ -149,12 +149,12 @@ serve(async (req) => {
     });
 
     console.log('Sending request to OpenAI...');
-    console.log('Making request to OpenAI with model: gpt-4o-mini');
+    console.log('Making request to OpenAI with model: gpt-4o');
     
     const requestBody = {
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages: messages,
-      max_tokens: 500,
+      max_tokens: 1000,
       temperature: 0.7,
     };
     
@@ -175,6 +175,15 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error('OpenAI upstream error', response.status, errorText);
+      
+      // Handle rate limit errors specifically
+      if (response.status === 429) {
+        return jsonResponse({ 
+          error: 'OpenAI rate limit exceeded. Please try again in a moment.',
+          type: 'rate_limit',
+          retryAfter: response.headers.get('retry-after')
+        }, 429);
+      }
       
       return jsonResponse({ 
         error: 'OpenAI upstream error',
