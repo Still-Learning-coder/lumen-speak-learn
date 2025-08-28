@@ -337,6 +337,14 @@ const Questions = () => {
       // Check if the response data contains an error (from our edge function)
       if (responseData && responseData.error) {
         console.error('Edge function returned error:', responseData);
+        
+        // Handle specific rate limit errors with better messaging
+        if (responseData.type === 'rate_limit') {
+          const retryAfter = responseData.retryAfter;
+          const retryMessage = retryAfter ? ` Try again in ${retryAfter} seconds.` : ' Please try again in a few minutes.';
+          throw new Error(`OpenAI rate limit exceeded.${retryMessage} Consider checking your OpenAI billing plan for higher limits.`);
+        }
+        
         throw new Error(`Edge function error: ${responseData.error} - ${responseData.details || ''}`);
       }
       
@@ -379,17 +387,20 @@ const Questions = () => {
       let toastMessage = 'Failed to get response. Please try again.';
       
       if (error instanceof Error) {
-        if (error.message.includes('Rate limit reached')) {
-          errorContent = 'OpenAI API rate limit exceeded. Please wait a few minutes and try again, or consider upgrading your OpenAI plan for higher limits.';
-          toastMessage = 'Rate limit exceeded. Please wait and try again.';
+        if (error.message.includes('Rate limit reached') || error.message.includes('rate limit exceeded')) {
+          errorContent = '🚫 **OpenAI Rate Limit Reached**\n\nYour OpenAI account has exceeded its usage quota. Here are your options:\n\n1. **Check your OpenAI billing**: Go to [platform.openai.com](https://platform.openai.com) → Billing\n2. **Add payment method** or **upgrade your plan** for higher limits\n3. **Wait for quota reset** (monthly limits reset on billing date)\n4. **Try again later** - some limits reset hourly\n\nIf you just started using OpenAI, you may need to add a payment method to increase your quota beyond the free tier.';
+          toastMessage = 'OpenAI quota exceeded. Check your billing at platform.openai.com';
         } else if (error.message.includes('insufficient_quota')) {
-          errorContent = 'OpenAI API quota exceeded. Please check your OpenAI billing and add credits to continue.';
-          toastMessage = 'API quota exceeded. Please check your OpenAI billing.';
+          errorContent = '💳 **OpenAI Quota Exceeded**\n\nYour OpenAI account needs more credits:\n\n1. **Visit**: [OpenAI Billing Dashboard](https://platform.openai.com/account/billing)\n2. **Add credits** or **upgrade your plan**\n3. **Check usage**: View your current usage and limits\n\nFree tier users need to add a payment method for continued access.';
+          toastMessage = 'OpenAI credits needed. Add payment method at platform.openai.com';
         } else if (error.message.includes('invalid_api_key')) {
-          errorContent = 'OpenAI API key is invalid. Please check your API key configuration.';
-          toastMessage = 'Invalid API key. Please check configuration.';
+          errorContent = '🔑 **Invalid API Key**\n\nThere\'s an issue with the OpenAI API configuration. Please contact support.';
+          toastMessage = 'Invalid API key. Please contact support.';
+        } else if (error.message.includes('Edge Function returned a non-2xx status code')) {
+          errorContent = '⚠️ **Service Temporarily Unavailable**\n\nOur AI service is experiencing high demand. This is likely due to:\n\n- OpenAI rate limiting\n- High server load\n- Temporary service interruption\n\nPlease **try again in a few minutes**. If the issue persists, the OpenAI quota may need to be increased.';
+          toastMessage = 'Service temporarily unavailable. Please try again in a few minutes.';
         } else if (error.message) {
-          errorContent = `Error: ${error.message}`;
+          errorContent = `❌ **Error**: ${error.message}`;
           toastMessage = error.message;
         }
       }
