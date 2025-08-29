@@ -4,20 +4,20 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 console.log(`[${new Date().toISOString()}] Chat completion function starting`);
 const envKeys = Object.keys(Deno.env.toObject());
 console.log('Environment variables:', envKeys);
-console.log('OPENAI_API_KEY exists:', envKeys.includes('OPENAI_API_KEY'));
+console.log('GROK_API_KEY exists:', envKeys.includes('GROK_API_KEY'));
 
 // Get API key immediately and log details
-const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-console.log('API key retrieved:', !!openAIApiKey);
-console.log('API key length:', openAIApiKey?.length || 0);
-console.log('API key value (first 10 chars):', openAIApiKey?.substring(0, 10) || 'NONE');
+const grokApiKey = Deno.env.get('GROK_API_KEY');
+console.log('API key retrieved:', !!grokApiKey);
+console.log('API key length:', grokApiKey?.length || 0);
+console.log('API key value (first 10 chars):', grokApiKey?.substring(0, 10) || 'NONE');
 
-if (!openAIApiKey) {
-  console.error('CRITICAL: OpenAI API key is not set!');
-} else if (openAIApiKey.trim().length === 0) {
-  console.error('CRITICAL: OpenAI API key is empty string!');
-} else if (openAIApiKey.length < 20) {
-  console.error('CRITICAL: OpenAI API key seems too short!');
+if (!grokApiKey) {
+  console.error('CRITICAL: Grok API key is not set!');
+} else if (grokApiKey.trim().length === 0) {
+  console.error('CRITICAL: Grok API key is empty string!');
+} else if (grokApiKey.length < 20) {
+  console.error('CRITICAL: Grok API key seems too short!');
 } else {
   console.log('API key looks valid (length check passed)');
 }
@@ -49,31 +49,31 @@ serve(async (req) => {
     console.log(`[${new Date().toISOString()}] Processing request...`);
     
     // Re-check API key in the request handler
-    const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
-    console.log('In handler - API key configured:', !!openAIApiKey);
-    console.log('In handler - API key length:', openAIApiKey ? openAIApiKey.length : 0);
+    const grokApiKey = Deno.env.get('GROK_API_KEY');
+    console.log('In handler - API key configured:', !!grokApiKey);
+    console.log('In handler - API key length:', grokApiKey ? grokApiKey.length : 0);
     
-    if (!openAIApiKey) {
-      console.error('FATAL: No OPENAI_API_KEY found in environment');
+    if (!grokApiKey) {
+      console.error('FATAL: No GROK_API_KEY found in environment');
       return jsonResponse({ 
-        error: 'OPENAI_API_KEY not found',
-        debug: 'Environment variable OPENAI_API_KEY is not set'
+        error: 'GROK_API_KEY not found',
+        debug: 'Environment variable GROK_API_KEY is not set'
       }, 500);
     }
     
-    if (openAIApiKey.trim() === '') {
-      console.error('FATAL: OPENAI_API_KEY is empty string');
+    if (grokApiKey.trim() === '') {
+      console.error('FATAL: GROK_API_KEY is empty string');
       return jsonResponse({ 
-        error: 'OPENAI_API_KEY is empty',
-        debug: 'Environment variable OPENAI_API_KEY is an empty string'
+        error: 'GROK_API_KEY is empty',
+        debug: 'Environment variable GROK_API_KEY is an empty string'
       }, 500);
     }
     
-    if (openAIApiKey.length < 20) {
-      console.error('FATAL: OPENAI_API_KEY too short:', openAIApiKey.length);
+    if (grokApiKey.length < 20) {
+      console.error('FATAL: GROK_API_KEY too short:', grokApiKey.length);
       return jsonResponse({ 
-        error: 'OPENAI_API_KEY too short',
-        debug: `API key length is ${openAIApiKey.length}, expected at least 20 characters`
+        error: 'GROK_API_KEY too short',
+        debug: `API key length is ${grokApiKey.length}, expected at least 20 characters`
       }, 500);
     }
     
@@ -148,11 +148,11 @@ serve(async (req) => {
       content: userMessageContent
     });
 
-    console.log('Sending request to OpenAI...');
-    console.log('Making request to OpenAI with model: gpt-4o');
+    console.log('Sending request to Grok...');
+    console.log('Making request to Grok with model: grok-beta');
     
     const requestBody = {
-      model: 'gpt-4o',
+      model: 'grok-beta',
       messages: messages,
       max_tokens: 1000,
       temperature: 0.7,
@@ -160,48 +160,48 @@ serve(async (req) => {
     
     console.log('Request body:', JSON.stringify(requestBody, null, 2));
 
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.x.ai/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${openAIApiKey}`,
+        'Authorization': `Bearer ${grokApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
     });
 
-    console.log('OpenAI response status:', response.status);
-    console.log('OpenAI response headers:', Object.fromEntries(response.headers.entries()));
+    console.log('Grok response status:', response.status);
+    console.log('Grok response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('OpenAI upstream error', response.status, errorText);
+      console.error('Grok upstream error', response.status, errorText);
       
       // Handle rate limit errors specifically
       if (response.status === 429) {
         return jsonResponse({ 
-          error: 'OpenAI rate limit exceeded. Please try again in a moment.',
+          error: 'Grok rate limit exceeded. Please try again in a moment.',
           type: 'rate_limit',
           retryAfter: response.headers.get('retry-after')
         }, 429);
       }
       
       return jsonResponse({ 
-        error: 'OpenAI upstream error',
+        error: 'Grok upstream error',
         status: response.status,
         details: safeSlice(errorText),
-        openaiStatus: response.status
+        grokStatus: response.status
       }, response.status >= 500 ? 502 : 400);
     }
 
     const data = await response.json();
-    console.log('OpenAI response data:', JSON.stringify(data, null, 2));
+    console.log('Grok response data:', JSON.stringify(data, null, 2));
 
     // Check if response has the expected structure
     if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      console.error('Invalid OpenAI response structure:', JSON.stringify(data, null, 2));
+      console.error('Invalid Grok response structure:', JSON.stringify(data, null, 2));
       return jsonResponse({ 
-        error: 'Invalid response structure from OpenAI',
-        openaiResponse: data
+        error: 'Invalid response structure from Grok',
+        grokResponse: data
       }, 502);
     }
 
