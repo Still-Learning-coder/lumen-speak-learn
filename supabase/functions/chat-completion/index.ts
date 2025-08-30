@@ -4,20 +4,20 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 console.log(`[${new Date().toISOString()}] Chat completion function starting`);
 const envKeys = Object.keys(Deno.env.toObject());
 console.log('Environment variables:', envKeys);
-console.log('GROK_API_KEY exists:', envKeys.includes('GROK_API_KEY'));
+console.log('GOOGLE_API_KEY exists:', envKeys.includes('GOOGLE_API_KEY'));
 
 // Get API key immediately and log details
-const grokApiKey = Deno.env.get('GROK_API_KEY');
-console.log('API key retrieved:', !!grokApiKey);
-console.log('API key length:', grokApiKey?.length || 0);
-console.log('API key value (first 10 chars):', grokApiKey?.substring(0, 10) || 'NONE');
+const googleApiKey = Deno.env.get('GOOGLE_API_KEY');
+console.log('API key retrieved:', !!googleApiKey);
+console.log('API key length:', googleApiKey?.length || 0);
+console.log('API key value (first 10 chars):', googleApiKey?.substring(0, 10) || 'NONE');
 
-if (!grokApiKey) {
-  console.error('CRITICAL: Grok API key is not set!');
-} else if (grokApiKey.trim().length === 0) {
-  console.error('CRITICAL: Grok API key is empty string!');
-} else if (grokApiKey.length < 20) {
-  console.error('CRITICAL: Grok API key seems too short!');
+if (!googleApiKey) {
+  console.error('CRITICAL: Google API key is not set!');
+} else if (googleApiKey.trim().length === 0) {
+  console.error('CRITICAL: Google API key is empty string!');
+} else if (googleApiKey.length < 20) {
+  console.error('CRITICAL: Google API key seems too short!');
 } else {
   console.log('API key looks valid (length check passed)');
 }
@@ -49,31 +49,31 @@ serve(async (req) => {
     console.log(`[${new Date().toISOString()}] Processing request...`);
     
     // Re-check API key in the request handler
-    const grokApiKey = Deno.env.get('GROK_API_KEY');
-    console.log('In handler - API key configured:', !!grokApiKey);
-    console.log('In handler - API key length:', grokApiKey ? grokApiKey.length : 0);
+    const googleApiKey = Deno.env.get('GOOGLE_API_KEY');
+    console.log('In handler - API key configured:', !!googleApiKey);
+    console.log('In handler - API key length:', googleApiKey ? googleApiKey.length : 0);
     
-    if (!grokApiKey) {
-      console.error('FATAL: No GROK_API_KEY found in environment');
+    if (!googleApiKey) {
+      console.error('FATAL: No GOOGLE_API_KEY found in environment');
       return jsonResponse({ 
-        error: 'GROK_API_KEY not found',
-        debug: 'Environment variable GROK_API_KEY is not set'
+        error: 'GOOGLE_API_KEY not found',
+        debug: 'Environment variable GOOGLE_API_KEY is not set'
       }, 500);
     }
     
-    if (grokApiKey.trim() === '') {
-      console.error('FATAL: GROK_API_KEY is empty string');
+    if (googleApiKey.trim() === '') {
+      console.error('FATAL: GOOGLE_API_KEY is empty string');
       return jsonResponse({ 
-        error: 'GROK_API_KEY is empty',
-        debug: 'Environment variable GROK_API_KEY is an empty string'
+        error: 'GOOGLE_API_KEY is empty',
+        debug: 'Environment variable GOOGLE_API_KEY is an empty string'
       }, 500);
     }
     
-    if (grokApiKey.length < 20) {
-      console.error('FATAL: GROK_API_KEY too short:', grokApiKey.length);
+    if (googleApiKey.length < 20) {
+      console.error('FATAL: GOOGLE_API_KEY too short:', googleApiKey.length);
       return jsonResponse({ 
-        error: 'GROK_API_KEY too short',
-        debug: `API key length is ${grokApiKey.length}, expected at least 20 characters`
+        error: 'GOOGLE_API_KEY too short',
+        debug: `API key length is ${googleApiKey.length}, expected at least 20 characters`
       }, 500);
     }
     
@@ -104,113 +104,114 @@ serve(async (req) => {
 
     console.log('Filtered history length:', validHistory.length);
 
-    // Build messages array with conversation history
-    const messages = [
-      {
-        role: 'system',
-        content: 'You are a helpful AI assistant. Provide clear, well-formatted responses using markdown for better readability. Use **bold** for emphasis, *italics* for subtle emphasis, bullet points for lists, and code blocks for technical content. Be friendly and engaging while staying focused on the user\'s questions. When analyzing images, provide detailed descriptions and insights.'
-      },
-      ...validHistory,
-    ];
-
-    // Build user message content - handle files if present
-    let userMessageContent;
-    if (files && files.length > 0) {
-      // Create multimodal content array
-      userMessageContent = [
-        {
-          type: 'text',
-          text: message || 'Please analyze the uploaded files.'
-        }
-      ];
-
-      // Add each file as an image or document
-      for (const file of files) {
-        if (file.type?.startsWith('image/')) {
-          userMessageContent.push({
-            type: 'image_url',
-            image_url: {
-              url: file.data, // base64 data URL
-              detail: 'high'
-            }
-          });
-        } else {
-          // For non-image files, add as text description
-          userMessageContent[0].text += `\n\nAttached file: ${file.name} (${file.type || 'unknown type'})`;
-        }
-      }
-    } else {
-      userMessageContent = message;
+    // Build contents array for Gemini API
+    const contents = [];
+    
+    // Add conversation history
+    for (const msg of validHistory) {
+      contents.push({
+        role: msg.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: msg.content }]
+      });
     }
 
-    messages.push({
+    // Build user message content - handle files if present
+    const userParts = [{ text: message }];
+    
+    if (files && files.length > 0) {
+      // Add each file as an image
+      for (const file of files) {
+        if (file.type?.startsWith('image/')) {
+          // Extract base64 data from data URL
+          const base64Data = file.data.includes(',') ? file.data.split(',')[1] : file.data;
+          userParts.push({
+            inline_data: {
+              mime_type: file.type || 'image/jpeg',
+              data: base64Data
+            }
+          });
+        }
+      }
+    }
+
+    contents.push({
       role: 'user',
-      content: userMessageContent
+      parts: userParts
     });
 
-    console.log('Sending request to Grok...');
-    console.log('Making request to Grok with model: grok-beta');
+    console.log('Sending request to Gemini...');
+    console.log('Making request to Gemini with model: gemini-1.5-flash');
     
     const requestBody = {
-      model: 'grok-beta',
-      messages: messages,
-      max_tokens: 1000,
-      temperature: 0.7,
+      contents: contents,
+      generationConfig: {
+        temperature: 0.7,
+        topK: 40,
+        topP: 0.95,
+        maxOutputTokens: 1000,
+      },
+      safetySettings: [
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_MEDIUM_AND_ABOVE"
+        }
+      ]
     };
     
     console.log('Request body:', JSON.stringify(requestBody, null, 2));
 
-    const response = await fetch('https://api.x.ai/v1/chat/completions', {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${grokApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
     });
 
-    console.log('Grok response status:', response.status);
-    console.log('Grok response headers:', Object.fromEntries(response.headers.entries()));
+    console.log('Gemini response status:', response.status);
+    console.log('Gemini response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Grok upstream error', response.status, errorText);
+      console.error('Gemini upstream error', response.status, errorText);
       
       // Handle rate limit errors specifically
       if (response.status === 429) {
         return jsonResponse({ 
-          error: 'Grok rate limit exceeded. Please try again in a moment.',
+          error: 'Gemini rate limit exceeded. Please try again in a moment.',
           type: 'rate_limit',
           retryAfter: response.headers.get('retry-after')
         }, 429);
       }
       
       return jsonResponse({ 
-        error: 'Grok upstream error',
+        error: 'Gemini upstream error',
         status: response.status,
         details: safeSlice(errorText),
-        grokStatus: response.status
+        geminiStatus: response.status
       }, response.status >= 500 ? 502 : 400);
     }
 
     const data = await response.json();
-    console.log('Grok response data:', JSON.stringify(data, null, 2));
+    console.log('Gemini response data:', JSON.stringify(data, null, 2));
 
     // Check if response has the expected structure
-    if (!data.choices || !data.choices[0] || !data.choices[0].message) {
-      console.error('Invalid Grok response structure:', JSON.stringify(data, null, 2));
+    if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+      console.error('Invalid Gemini response structure:', JSON.stringify(data, null, 2));
       return jsonResponse({ 
-        error: 'Invalid response structure from Grok',
-        grokResponse: data
+        error: 'Invalid response structure from Gemini',
+        geminiResponse: data
       }, 502);
     }
 
-    const assistantMessage = data.choices[0].message.content;
+    const assistantMessage = data.candidates[0].content.parts[0].text;
 
-    // Use the actual content that was sent to OpenAI for conversation history
-    const userContentForHistory = typeof userMessageContent === 'string' 
-      ? userMessageContent 
-      : message || 'Message with attachments';
+    // Use the actual content that was sent to Gemini for conversation history
+    const userContentForHistory = message || 'Message with attachments';
 
     return jsonResponse({ 
       response: assistantMessage,

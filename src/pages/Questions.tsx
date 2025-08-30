@@ -388,16 +388,16 @@ const Questions = () => {
       
       if (error instanceof Error) {
         if (error.message.includes('Rate limit reached') || error.message.includes('rate limit exceeded')) {
-          errorContent = '🚫 **Grok Rate Limit Reached**\n\nThe Grok AI service is experiencing high demand. Here are your options:\n\n1. **Try again in a few minutes** - rate limits usually reset quickly\n2. **Check your X/Grok API usage** at [console.x.ai](https://console.x.ai)\n3. **Consider upgrading your Grok plan** for higher limits\n4. **Wait for automatic reset** - most limits reset hourly\n\nGrok typically has generous rate limits, so this should resolve quickly.';
-          toastMessage = 'Grok rate limit reached. Please try again in a few minutes.';
+          errorContent = '🚫 **Gemini Rate Limit Reached**\n\nThe Google Gemini API is experiencing high demand. Here are your options:\n\n1. **Try again in a few minutes** - rate limits usually reset quickly\n2. **Check your Google Cloud Console** at [console.cloud.google.com](https://console.cloud.google.com)\n3. **Consider upgrading your quota** for higher limits\n4. **Wait for automatic reset** - most limits reset daily\n\nGemini has generous free tier limits that should handle most usage.';
+          toastMessage = 'Gemini rate limit reached. Please try again in a few minutes.';
         } else if (error.message.includes('insufficient_quota')) {
-          errorContent = '💳 **Grok Quota Exceeded**\n\nYour Grok account needs attention:\n\n1. **Visit**: [X/Grok Console](https://console.x.ai)\n2. **Check your billing** and usage limits\n3. **Add credits** or **upgrade your plan** if needed\n\nGrok usually has generous quotas for new users.';
-          toastMessage = 'Grok quota exceeded. Check your account at console.x.ai';
+          errorContent = '💳 **Gemini Quota Exceeded**\n\nYour Google API account needs attention:\n\n1. **Visit**: [Google Cloud Console](https://console.cloud.google.com)\n2. **Check your API quotas** and billing\n3. **Enable billing** or **increase quotas** if needed\n\nGemini offers a generous free tier for new users.';
+          toastMessage = 'Gemini quota exceeded. Check your Google Cloud Console';
         } else if (error.message.includes('invalid_api_key')) {
-          errorContent = '🔑 **Invalid API Key**\n\nThere\'s an issue with the Grok API configuration. Please contact support.';
-          toastMessage = 'Invalid Grok API key. Please contact support.';
+          errorContent = '🔑 **Invalid API Key**\n\nThere\'s an issue with the Gemini API configuration. Please contact support.';
+          toastMessage = 'Invalid Gemini API key. Please contact support.';
         } else if (error.message.includes('Edge Function returned a non-2xx status code')) {
-          errorContent = '⚠️ **Service Temporarily Unavailable**\n\nOur AI service is experiencing high demand. This is likely due to:\n\n- Grok API rate limiting\n- High server load\n- Temporary service interruption\n\nPlease **try again in a few minutes**. Grok typically has excellent uptime and generous limits.';
+          errorContent = '⚠️ **Service Temporarily Unavailable**\n\nOur AI service is experiencing high demand. This is likely due to:\n\n- Gemini API rate limiting\n- High server load\n- Temporary service interruption\n\nPlease **try again in a few minutes**. Gemini typically has excellent uptime and generous limits.';
           toastMessage = 'Service temporarily unavailable. Please try again in a few minutes.';
         } else if (error.message) {
           errorContent = `❌ **Error**: ${error.message}`;
