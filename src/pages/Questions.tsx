@@ -92,6 +92,19 @@ const Questions = () => {
   const [webSpeechSupported, setWebSpeechSupported] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [speechState, setSpeechState] = useState<{
+    messageId: string | null;
+    text: string;
+    position: number;
+    isPaused: boolean;
+    isLoading: boolean;
+  }>({
+    messageId: null,
+    text: '',
+    position: 0,
+    isPaused: false,
+    isLoading: false
+  });
   const recorderRef = useRef<AudioRecorder | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -567,7 +580,7 @@ const Questions = () => {
     }
   };
 
-  const handleReadAloud = async (messageId: string, content: string) => {
+  const startSpeech = async (messageId: string, content: string) => {
     if (isMuted) {
       toast.info('Audio is muted. Unmute to hear the response.');
       return;
@@ -575,7 +588,7 @@ const Questions = () => {
 
     // Validate content parameter and check for error messages
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
-      toast.error('No content available for audio generation');
+      toast.error('No content available for text-to-speech');
       return;
     }
 
@@ -585,55 +598,248 @@ const Questions = () => {
       return;
     }
 
-    // Find the message and check if it already has audio
-    const message = messages.find(msg => msg.id === messageId);
-    if (message?.audioUrl && message.audioUrl !== '') {
-      // If audio already exists, just play it
-      if (message.isPlaying) {
-        stopAudio();
+    const cleanedContent = cleanTextForSpeech(content);
+    
+    // Set loading state
+    setSpeechState({
+      messageId,
+      text: cleanedContent,
+      position: 0,
+      isPaused: false,
+      isLoading: true
+    });
+
+    try {
+      // Try to generate audio first
+      const audioUrl = await generateAudio(cleanedContent);
+      
+      if (audioUrl && audioUrl !== 'web-speech-synthesis') {
+        // Use generated audio with our custom controls
+        playSpeechFromPosition(messageId, audioUrl, cleanedContent, 0);
       } else {
-        playAudio(messageId, message.audioUrl);
+        // Fallback to web speech API with position tracking
+        speakWithWebSpeech(messageId, cleanedContent, 0);
       }
+    } catch (error) {
+      console.error('Speech generation error:', error);
+      toast.error('Failed to generate speech');
+      setSpeechState({
+        messageId: null,
+        text: '',
+        position: 0,
+        isPaused: false,
+        isLoading: false
+      });
+    }
+  };
+
+  const pauseSpeech = () => {
+    if (speechState.messageId) {
+      // Stop current audio
+      if (currentAudio) {
+        currentAudio.pause();
+      }
+      
+      // Cancel web speech if active
+      if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+      }
+
+      setSpeechState(prev => ({ ...prev, isPaused: true, isLoading: false }));
+      
+      // Update message state
+      setMessages(prev => prev.map(msg => 
+        msg.id === speechState.messageId 
+          ? { ...msg, isPlaying: false }
+          : msg
+      ));
+    }
+  };
+
+  const resumeSpeech = () => {
+    if (speechState.messageId && speechState.isPaused) {
+      const message = messages.find(msg => msg.id === speechState.messageId);
+      
+      if (message?.audioUrl && message.audioUrl !== 'web-speech-synthesis') {
+        // Resume generated audio from position
+        playSpeechFromPosition(speechState.messageId, message.audioUrl, speechState.text, speechState.position);
+      } else {
+        // Resume web speech from position
+        speakWithWebSpeech(speechState.messageId, speechState.text, speechState.position);
+      }
+    }
+  };
+
+  const stopSpeech = () => {
+    // Stop all audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+      setCurrentAudio(null);
+    }
+    
+    // Cancel web speech
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+    }
+
+    // Reset speech state
+    setSpeechState({
+      messageId: null,
+      text: '',
+      position: 0,
+      isPaused: false,
+      isLoading: false
+    });
+
+    // Update all messages to not playing
+    setMessages(prev => prev.map(msg => ({ ...msg, isPlaying: false })));
+  };
+
+  const playSpeechFromPosition = (messageId: string, audioUrl: string, text: string, startPosition: number) => {
+    // Stop any current audio
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
+
+    const audio = new Audio(audioUrl);
+    setCurrentAudio(audio);
+
+    // Calculate approximate time position (very rough estimation)
+    const estimatedDuration = text.length / 15; // ~15 characters per second average speaking rate
+    const startTime = (startPosition / text.length) * estimatedDuration;
+    
+    audio.currentTime = Math.max(0, startTime);
+
+    // Update states
+    setSpeechState(prev => ({ 
+      ...prev, 
+      isPaused: false, 
+      isLoading: false,
+      position: startPosition 
+    }));
+
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, isPlaying: true }
+        : { ...msg, isPlaying: false }
+    ));
+
+    // Track position during playback (rough estimation)
+    const progressInterval = setInterval(() => {
+      if (audio.paused || audio.ended) {
+        clearInterval(progressInterval);
+        return;
+      }
+      
+      const progress = audio.currentTime / (estimatedDuration || 1);
+      const currentPos = Math.floor(progress * text.length);
+      
+      setSpeechState(prev => ({ ...prev, position: currentPos }));
+    }, 500);
+
+    audio.onended = () => {
+      clearInterval(progressInterval);
+      stopSpeech();
+    };
+
+    audio.onerror = () => {
+      clearInterval(progressInterval);
+      toast.error('Failed to play audio');
+      stopSpeech();
+    };
+
+    audio.play();
+  };
+
+  const speakWithWebSpeech = (messageId: string, text: string, startPosition: number) => {
+    // Get the text from the current position
+    const textToSpeak = text.substring(startPosition);
+    
+    if (!textToSpeak.trim()) {
+      stopSpeech();
       return;
     }
 
-    // Generate audio for the first time
-    setIsProcessing(true);
-    try {
-      const cleanedContent = cleanTextForSpeech(content);
-      const audioUrl = await generateAudio(cleanedContent);
-      if (audioUrl && audioUrl !== 'web-speech-synthesis') {
-        // Update message with audio URL and play
-        setMessages(prev => prev.map(msg => msg.id === messageId ? {
-          ...msg,
-          audioUrl
-        } : msg));
-        
-        // Save audio to database if user is logged in
-        if (user) {
-          await saveAudioToDatabase(messageId, audioUrl, 'external-tts');
-        }
-        
-        setTimeout(() => playAudio(messageId, audioUrl), 100);
-      } else if (audioUrl === 'web-speech-synthesis') {
-        // Mark that web speech synthesis was used
-        setMessages(prev => prev.map(msg => msg.id === messageId ? {
-          ...msg,
-          audioUrl: 'web-speech-synthesis',
-          isPlaying: false
-        } : msg));
-        
-        // Save web speech info to database if user is logged in
-        if (user) {
-          await saveAudioToDatabase(messageId, 'web-speech-synthesis', 'web-speech-api');
-        }
+    // Cancel any ongoing speech
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    // Try to use a pleasant voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(voice => 
+      voice.name.includes('Samantha') || 
+      voice.name.includes('Alex') || 
+      voice.name.includes('Karen') || 
+      voice.name.toLowerCase().includes('female')
+    ) || voices[0];
+    
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    // Update states
+    setSpeechState(prev => ({ 
+      ...prev, 
+      isPaused: false, 
+      isLoading: false,
+      position: startPosition 
+    }));
+
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, isPlaying: true }
+        : { ...msg, isPlaying: false }
+    ));
+
+    // Track progress during speech
+    const startTime = Date.now();
+    const progressInterval = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        clearInterval(progressInterval);
+        return;
       }
-      // For web-speech-synthesis, audio already played during generation
-    } catch (error) {
-      console.error('Audio generation error:', error);
-      toast.error('Failed to generate audio');
-    } finally {
-      setIsProcessing(false);
+      
+      const elapsed = (Date.now() - startTime) / 1000;
+      const estimatedCharsSpoken = Math.floor(elapsed * 15); // ~15 chars per second
+      const currentPos = Math.min(startPosition + estimatedCharsSpoken, text.length);
+      
+      setSpeechState(prev => ({ ...prev, position: currentPos }));
+    }, 500);
+
+    utterance.onend = () => {
+      clearInterval(progressInterval);
+      stopSpeech();
+    };
+
+    utterance.onerror = (error) => {
+      clearInterval(progressInterval);
+      console.error('Web Speech synthesis error:', error);
+      stopSpeech();
+    };
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const handleReadAloud = (messageId: string, content: string) => {
+    if (speechState.messageId === messageId) {
+      if (speechState.isPaused) {
+        resumeSpeech();
+      } else if (speechState.isLoading) {
+        // Do nothing while loading
+        return;
+      } else {
+        pauseSpeech();
+      }
+    } else {
+      // Stop current speech and start new one
+      stopSpeech();
+      startSpeech(messageId, content);
     }
   };
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -861,10 +1067,58 @@ const Questions = () => {
 
                     {message.role === 'assistant' && <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50">
                         <div className="flex items-center gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => handleReadAloud(message.id, message.content)} disabled={isProcessing}>
-                            {message.isPlaying ? <Pause className="h-4 w-4 mr-1" /> : <Volume2 className="h-4 w-4 mr-1" />}
-                            {message.isPlaying ? 'Stop Reading' : 'Read Aloud'}
-                          </Button>
+                          {speechState.messageId === message.id ? (
+                            <div className="flex items-center gap-2">
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={() => handleReadAloud(message.id, message.content)} 
+                                disabled={speechState.isLoading}
+                              >
+                                {speechState.isLoading ? (
+                                  <>
+                                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                                    Loading...
+                                  </>
+                                ) : speechState.isPaused ? (
+                                  <>
+                                    <Play className="h-4 w-4 mr-1" />
+                                    Resume
+                                  </>
+                                ) : (
+                                  <>
+                                    <Pause className="h-4 w-4 mr-1" />
+                                    Pause
+                                  </>
+                                )}
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="sm" 
+                                onClick={stopSpeech}
+                                disabled={speechState.isLoading}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <VolumeX className="h-4 w-4 mr-1" />
+                                Stop
+                              </Button>
+                              {speechState.text && (
+                                <div className="text-xs text-muted-foreground">
+                                  {Math.round((speechState.position / speechState.text.length) * 100)}%
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              onClick={() => handleReadAloud(message.id, message.content)} 
+                              disabled={isProcessing || speechState.isLoading}
+                            >
+                              <Volume2 className="h-4 w-4 mr-1" />
+                              Read Aloud
+                            </Button>
+                          )}
                         </div>
                         
                         <div className="flex items-center gap-2">
