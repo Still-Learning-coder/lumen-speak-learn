@@ -647,17 +647,27 @@ const Questions = () => {
 
   const pauseSpeech = () => {
     if (speechState.messageId) {
-      // Stop current audio
+      let currentPosition = speechState.position;
+
+      // Get more accurate position for audio playback
       if (currentAudio) {
+        const estimatedDuration = speechState.text.length / 15; // ~15 characters per second
+        const progress = currentAudio.currentTime / estimatedDuration;
+        currentPosition = Math.floor(progress * speechState.text.length);
         currentAudio.pause();
       }
       
-      // Cancel web speech if active
+      // For web speech, we'll rely on the tracked position
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
 
-      setSpeechState(prev => ({ ...prev, isPaused: true, isLoading: false }));
+      setSpeechState(prev => ({ 
+        ...prev, 
+        isPaused: true, 
+        isLoading: false,
+        position: Math.max(0, Math.min(currentPosition, speechState.text.length))
+      }));
       
       // Update message state
       setMessages(prev => prev.map(msg => 
@@ -777,65 +787,87 @@ const Questions = () => {
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(textToSpeak);
-    utterance.rate = 0.9;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
+    // Break text into smaller chunks for better position tracking
+    const words = textToSpeak.split(' ');
+    const chunkSize = 10; // Speak in chunks of 10 words
+    let currentChunkIndex = 0;
+    let totalWordsSpoken = text.substring(0, startPosition).split(' ').length - 1;
 
-    // Try to use a pleasant voice
-    const voices = window.speechSynthesis.getVoices();
-    const preferredVoice = voices.find(voice => 
-      voice.name.includes('Samantha') || 
-      voice.name.includes('Alex') || 
-      voice.name.includes('Karen') || 
-      voice.name.toLowerCase().includes('female')
-    ) || voices[0];
-    
-    if (preferredVoice) {
-      utterance.voice = preferredVoice;
-    }
-
-    // Update states
-    setSpeechState(prev => ({ 
-      ...prev, 
-      isPaused: false, 
-      isLoading: false,
-      position: startPosition 
-    }));
-
-    setMessages(prev => prev.map(msg => 
-      msg.id === messageId 
-        ? { ...msg, isPlaying: true }
-        : { ...msg, isPlaying: false }
-    ));
-
-    // Track progress during speech
-    const startTime = Date.now();
-    const progressInterval = setInterval(() => {
-      if (!window.speechSynthesis.speaking) {
-        clearInterval(progressInterval);
+    const speakChunk = () => {
+      if (currentChunkIndex >= words.length) {
+        stopSpeech();
         return;
       }
-      
-      const elapsed = (Date.now() - startTime) / 1000;
-      const estimatedCharsSpoken = Math.floor(elapsed * 15); // ~15 chars per second
-      const currentPos = Math.min(startPosition + estimatedCharsSpoken, text.length);
-      
-      setSpeechState(prev => ({ ...prev, position: currentPos }));
-    }, 500);
 
-    utterance.onend = () => {
-      clearInterval(progressInterval);
-      stopSpeech();
+      const chunkEnd = Math.min(currentChunkIndex + chunkSize, words.length);
+      const chunk = words.slice(currentChunkIndex, chunkEnd).join(' ');
+      
+      const utterance = new SpeechSynthesisUtterance(chunk);
+      utterance.rate = 0.9;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+
+      // Try to use a pleasant voice
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoice = voices.find(voice => 
+        voice.name.includes('Samantha') || 
+        voice.name.includes('Alex') || 
+        voice.name.includes('Karen') || 
+        voice.name.toLowerCase().includes('female')
+      ) || voices[0];
+      
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+
+      // Update states for this chunk
+      setSpeechState(prev => ({ 
+        ...prev, 
+        isPaused: false, 
+        isLoading: false,
+        position: startPosition + words.slice(0, currentChunkIndex).join(' ').length
+      }));
+
+      setMessages(prev => prev.map(msg => 
+        msg.id === messageId 
+          ? { ...msg, isPlaying: true }
+          : { ...msg, isPlaying: false }
+      ));
+
+      utterance.onend = () => {
+        totalWordsSpoken += (chunkEnd - currentChunkIndex);
+        currentChunkIndex = chunkEnd;
+        
+        // Update position based on words spoken
+        const wordsInOriginalText = text.split(' ');
+        const currentPosition = totalWordsSpoken < wordsInOriginalText.length 
+          ? wordsInOriginalText.slice(0, totalWordsSpoken).join(' ').length
+          : text.length;
+
+        setSpeechState(prev => ({ ...prev, position: currentPosition }));
+
+        // Continue to next chunk if not paused and still in the same speech session
+        setTimeout(() => {
+          // Check current state before continuing
+          setSpeechState(current => {
+            if (!current.isPaused && current.messageId === messageId) {
+              speakChunk();
+            }
+            return current;
+          });
+        }, 100);
+      };
+
+      utterance.onerror = (error) => {
+        console.error('Web Speech synthesis error:', error);
+        stopSpeech();
+      };
+
+      window.speechSynthesis.speak(utterance);
     };
 
-    utterance.onerror = (error) => {
-      clearInterval(progressInterval);
-      console.error('Web Speech synthesis error:', error);
-      stopSpeech();
-    };
-
-    window.speechSynthesis.speak(utterance);
+    // Start speaking the first chunk
+    speakChunk();
   };
 
   const handleReadAloud = (messageId: string, content: string) => {
