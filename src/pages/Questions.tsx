@@ -615,9 +615,21 @@ const Questions = () => {
       
       if (audioUrl && audioUrl !== 'web-speech-synthesis') {
         // Use generated audio with our custom controls
+        // Update message with the audio URL
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, audioUrl }
+            : msg
+        ));
         playSpeechFromPosition(messageId, audioUrl, cleanedContent, 0);
       } else {
         // Fallback to web speech API with position tracking
+        // Update message with web speech identifier
+        setMessages(prev => prev.map(msg => 
+          msg.id === messageId 
+            ? { ...msg, audioUrl: 'web-speech-synthesis' }
+            : msg
+        ));
         speakWithWebSpeech(messageId, cleanedContent, 0);
       }
     } catch (error) {
@@ -939,17 +951,10 @@ const Questions = () => {
         if (preferredVoice) {
           utterance.voice = preferredVoice;
         }
-        utterance.onend = () => {
-          console.log('✅ Web Speech synthesis complete');
-          // Return a flag to indicate web speech was used
-          resolve('web-speech-synthesis');
-        };
-        utterance.onerror = error => {
-          console.error('🚨 Web Speech synthesis error:', error);
-          reject(error);
-        };
-        window.speechSynthesis.speak(utterance);
-        toast.success("Using browser's text-to-speech");
+        // For generateWebSpeechAudio, we don't actually speak here
+        // Just return the identifier immediately
+        console.log('✅ Web Speech API available - returning identifier');
+        resolve('web-speech-synthesis');
       } catch (error) {
         console.error('🚨 Web Speech setup error:', error);
         reject(error);
