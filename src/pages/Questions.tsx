@@ -776,33 +776,56 @@ const Questions = () => {
   };
 
   const speakWithWebSpeech = (messageId: string, text: string, startPosition: number) => {
-    // Get the text from the current position
-    const textToSpeak = text.substring(startPosition);
+    console.log(`Starting Web Speech from position: ${startPosition} / ${text.length}`);
     
-    if (!textToSpeak.trim()) {
-      stopSpeech();
-      return;
+    // Split text into sentences for more natural pause points
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim());
+    
+    // Find which sentence to start from based on position
+    let charCount = 0;
+    let startSentenceIndex = 0;
+    let positionInSentence = 0;
+    
+    for (let i = 0; i < sentences.length; i++) {
+      const sentenceLength = sentences[i].length + 1; // +1 for punctuation
+      if (charCount + sentenceLength > startPosition) {
+        startSentenceIndex = i;
+        positionInSentence = startPosition - charCount;
+        break;
+      }
+      charCount += sentenceLength;
     }
+    
+    console.log(`Starting from sentence ${startSentenceIndex}, position in sentence: ${positionInSentence}`);
 
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
-    // Break text into smaller chunks for better position tracking
-    const words = textToSpeak.split(' ');
-    const chunkSize = 10; // Speak in chunks of 10 words
-    let currentChunkIndex = 0;
-    let totalWordsSpoken = text.substring(0, startPosition).split(' ').length - 1;
+    let currentSentenceIndex = startSentenceIndex;
 
-    const speakChunk = () => {
-      if (currentChunkIndex >= words.length) {
+    const speakSentence = () => {
+      if (currentSentenceIndex >= sentences.length) {
+        console.log('All sentences completed');
         stopSpeech();
         return;
       }
 
-      const chunkEnd = Math.min(currentChunkIndex + chunkSize, words.length);
-      const chunk = words.slice(currentChunkIndex, chunkEnd).join(' ');
+      let sentenceToSpeak = sentences[currentSentenceIndex].trim();
       
-      const utterance = new SpeechSynthesisUtterance(chunk);
+      // If we're resuming from the middle of a sentence, start from that position
+      if (currentSentenceIndex === startSentenceIndex && positionInSentence > 0) {
+        sentenceToSpeak = sentenceToSpeak.substring(positionInSentence);
+      }
+      
+      if (!sentenceToSpeak) {
+        currentSentenceIndex++;
+        speakSentence();
+        return;
+      }
+
+      console.log(`Speaking sentence ${currentSentenceIndex}: "${sentenceToSpeak.substring(0, 50)}..."`);
+      
+      const utterance = new SpeechSynthesisUtterance(sentenceToSpeak);
       utterance.rate = 0.9;
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
@@ -820,12 +843,23 @@ const Questions = () => {
         utterance.voice = preferredVoice;
       }
 
-      // Update states for this chunk
+      // Calculate current position (start of current sentence + any offset)
+      let currentPosition = 0;
+      for (let i = 0; i < currentSentenceIndex; i++) {
+        currentPosition += sentences[i].length + 1; // +1 for punctuation
+      }
+      if (currentSentenceIndex === startSentenceIndex) {
+        currentPosition += positionInSentence;
+      }
+
+      console.log(`Current speech position: ${currentPosition} / ${text.length}`);
+
+      // Update states
       setSpeechState(prev => ({ 
         ...prev, 
         isPaused: false, 
         isLoading: false,
-        position: startPosition + words.slice(0, currentChunkIndex).join(' ').length
+        position: currentPosition
       }));
 
       setMessages(prev => prev.map(msg => 
@@ -835,23 +869,23 @@ const Questions = () => {
       ));
 
       utterance.onend = () => {
-        totalWordsSpoken += (chunkEnd - currentChunkIndex);
-        currentChunkIndex = chunkEnd;
+        console.log(`Completed sentence ${currentSentenceIndex}`);
+        currentSentenceIndex++;
         
-        // Update position based on words spoken
-        const wordsInOriginalText = text.split(' ');
-        const currentPosition = totalWordsSpoken < wordsInOriginalText.length 
-          ? wordsInOriginalText.slice(0, totalWordsSpoken).join(' ').length
-          : text.length;
+        // Calculate position after completing this sentence
+        let newPosition = 0;
+        for (let i = 0; i < currentSentenceIndex; i++) {
+          newPosition += sentences[i].length + 1; // +1 for punctuation
+        }
+        
+        console.log(`Updated position to: ${newPosition} / ${text.length}`);
+        setSpeechState(prev => ({ ...prev, position: Math.min(newPosition, text.length) }));
 
-        setSpeechState(prev => ({ ...prev, position: currentPosition }));
-
-        // Continue to next chunk if not paused and still in the same speech session
+        // Continue to next sentence if not paused and still in the same speech session
         setTimeout(() => {
-          // Check current state before continuing
           setSpeechState(current => {
             if (!current.isPaused && current.messageId === messageId) {
-              speakChunk();
+              speakSentence();
             }
             return current;
           });
@@ -866,8 +900,8 @@ const Questions = () => {
       window.speechSynthesis.speak(utterance);
     };
 
-    // Start speaking the first chunk
-    speakChunk();
+    // Start speaking from the calculated sentence
+    speakSentence();
   };
 
   const handleReadAloud = (messageId: string, content: string) => {
