@@ -647,27 +647,17 @@ const Questions = () => {
 
   const pauseSpeech = () => {
     if (speechState.messageId) {
-      let currentPosition = speechState.position;
-
-      // Get more accurate position for audio playback
+      // Stop current audio
       if (currentAudio) {
-        const estimatedDuration = speechState.text.length / 15; // ~15 characters per second
-        const progress = currentAudio.currentTime / estimatedDuration;
-        currentPosition = Math.floor(progress * speechState.text.length);
         currentAudio.pause();
       }
       
-      // For web speech, we'll rely on the tracked position
+      // Cancel web speech if active
       if (window.speechSynthesis.speaking) {
         window.speechSynthesis.cancel();
       }
 
-      setSpeechState(prev => ({ 
-        ...prev, 
-        isPaused: true, 
-        isLoading: false,
-        position: Math.max(0, Math.min(currentPosition, speechState.text.length))
-      }));
+      setSpeechState(prev => ({ ...prev, isPaused: true, isLoading: false }));
       
       // Update message state
       setMessages(prev => prev.map(msg => 
@@ -776,132 +766,76 @@ const Questions = () => {
   };
 
   const speakWithWebSpeech = (messageId: string, text: string, startPosition: number) => {
-    console.log(`Starting Web Speech from position: ${startPosition} / ${text.length}`);
+    // Get the text from the current position
+    const textToSpeak = text.substring(startPosition);
     
-    // Split text into sentences for more natural pause points
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim());
-    
-    // Find which sentence to start from based on position
-    let charCount = 0;
-    let startSentenceIndex = 0;
-    let positionInSentence = 0;
-    
-    for (let i = 0; i < sentences.length; i++) {
-      const sentenceLength = sentences[i].length + 1; // +1 for punctuation
-      if (charCount + sentenceLength > startPosition) {
-        startSentenceIndex = i;
-        positionInSentence = startPosition - charCount;
-        break;
-      }
-      charCount += sentenceLength;
+    if (!textToSpeak.trim()) {
+      stopSpeech();
+      return;
     }
-    
-    console.log(`Starting from sentence ${startSentenceIndex}, position in sentence: ${positionInSentence}`);
 
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
-    let currentSentenceIndex = startSentenceIndex;
+    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+    utterance.rate = 0.9;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
 
-    const speakSentence = () => {
-      if (currentSentenceIndex >= sentences.length) {
-        console.log('All sentences completed');
-        stopSpeech();
+    // Try to use a pleasant voice
+    const voices = window.speechSynthesis.getVoices();
+    const preferredVoice = voices.find(voice => 
+      voice.name.includes('Samantha') || 
+      voice.name.includes('Alex') || 
+      voice.name.includes('Karen') || 
+      voice.name.toLowerCase().includes('female')
+    ) || voices[0];
+    
+    if (preferredVoice) {
+      utterance.voice = preferredVoice;
+    }
+
+    // Update states
+    setSpeechState(prev => ({ 
+      ...prev, 
+      isPaused: false, 
+      isLoading: false,
+      position: startPosition 
+    }));
+
+    setMessages(prev => prev.map(msg => 
+      msg.id === messageId 
+        ? { ...msg, isPlaying: true }
+        : { ...msg, isPlaying: false }
+    ));
+
+    // Track progress during speech
+    const startTime = Date.now();
+    const progressInterval = setInterval(() => {
+      if (!window.speechSynthesis.speaking) {
+        clearInterval(progressInterval);
         return;
       }
-
-      let sentenceToSpeak = sentences[currentSentenceIndex].trim();
       
-      // If we're resuming from the middle of a sentence, start from that position
-      if (currentSentenceIndex === startSentenceIndex && positionInSentence > 0) {
-        sentenceToSpeak = sentenceToSpeak.substring(positionInSentence);
-      }
+      const elapsed = (Date.now() - startTime) / 1000;
+      const estimatedCharsSpoken = Math.floor(elapsed * 15); // ~15 chars per second
+      const currentPos = Math.min(startPosition + estimatedCharsSpoken, text.length);
       
-      if (!sentenceToSpeak) {
-        currentSentenceIndex++;
-        speakSentence();
-        return;
-      }
+      setSpeechState(prev => ({ ...prev, position: currentPos }));
+    }, 500);
 
-      console.log(`Speaking sentence ${currentSentenceIndex}: "${sentenceToSpeak.substring(0, 50)}..."`);
-      
-      const utterance = new SpeechSynthesisUtterance(sentenceToSpeak);
-      utterance.rate = 0.9;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-
-      // Try to use a pleasant voice
-      const voices = window.speechSynthesis.getVoices();
-      const preferredVoice = voices.find(voice => 
-        voice.name.includes('Samantha') || 
-        voice.name.includes('Alex') || 
-        voice.name.includes('Karen') || 
-        voice.name.toLowerCase().includes('female')
-      ) || voices[0];
-      
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
-      }
-
-      // Calculate current position (start of current sentence + any offset)
-      let currentPosition = 0;
-      for (let i = 0; i < currentSentenceIndex; i++) {
-        currentPosition += sentences[i].length + 1; // +1 for punctuation
-      }
-      if (currentSentenceIndex === startSentenceIndex) {
-        currentPosition += positionInSentence;
-      }
-
-      console.log(`Current speech position: ${currentPosition} / ${text.length}`);
-
-      // Update states
-      setSpeechState(prev => ({ 
-        ...prev, 
-        isPaused: false, 
-        isLoading: false,
-        position: currentPosition
-      }));
-
-      setMessages(prev => prev.map(msg => 
-        msg.id === messageId 
-          ? { ...msg, isPlaying: true }
-          : { ...msg, isPlaying: false }
-      ));
-
-      utterance.onend = () => {
-        console.log(`Completed sentence ${currentSentenceIndex}`);
-        currentSentenceIndex++;
-        
-        // Calculate position after completing this sentence
-        let newPosition = 0;
-        for (let i = 0; i < currentSentenceIndex; i++) {
-          newPosition += sentences[i].length + 1; // +1 for punctuation
-        }
-        
-        console.log(`Updated position to: ${newPosition} / ${text.length}`);
-        setSpeechState(prev => ({ ...prev, position: Math.min(newPosition, text.length) }));
-
-        // Continue to next sentence if not paused and still in the same speech session
-        setTimeout(() => {
-          setSpeechState(current => {
-            if (!current.isPaused && current.messageId === messageId) {
-              speakSentence();
-            }
-            return current;
-          });
-        }, 100);
-      };
-
-      utterance.onerror = (error) => {
-        console.error('Web Speech synthesis error:', error);
-        stopSpeech();
-      };
-
-      window.speechSynthesis.speak(utterance);
+    utterance.onend = () => {
+      clearInterval(progressInterval);
+      stopSpeech();
     };
 
-    // Start speaking from the calculated sentence
-    speakSentence();
+    utterance.onerror = (error) => {
+      clearInterval(progressInterval);
+      console.error('Web Speech synthesis error:', error);
+      stopSpeech();
+    };
+
+    window.speechSynthesis.speak(utterance);
   };
 
   const handleReadAloud = (messageId: string, content: string) => {
