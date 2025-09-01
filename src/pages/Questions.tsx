@@ -89,6 +89,8 @@ const Questions = () => {
   const [currentAudio, setCurrentAudio] = useState<HTMLAudioElement | null>(null);
   const [generatedImages, setGeneratedImages] = useState<Map<string, string>>(new Map());
   const [imageGenerating, setImageGenerating] = useState<Set<string>>(new Set());
+  const [videoGenerating, setVideoGenerating] = useState<Set<string>>(new Set());
+  const [generatedVideos, setGeneratedVideos] = useState<Map<string, string>>(new Map());
   const [webSpeechSupported, setWebSpeechSupported] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -1027,12 +1029,73 @@ const Questions = () => {
       }
     });
   };
-  const generateVideoResponse = () => {
+  const handleGenerateVideo = async (messageId: string, userQuestion: string, aiResponse: string) => {
     if (!isPremium) {
       toast.error('Video responses are only available for Premium users');
       return;
     }
-    toast.info('Video response generation coming soon!');
+
+    if (!user) {
+      toast.error('Please sign in to generate videos');
+      return;
+    }
+
+    try {
+      setVideoGenerating(prev => new Set([...prev, messageId]));
+      toast.info('Generating video explanation...');
+
+      // Step 1: Generate video prompt using Gemini
+      const { data: promptData, error: promptError } = await supabase.functions.invoke('generate-video-prompt', {
+        body: { userQuestion, aiResponse }
+      });
+
+      if (promptError) {
+        throw new Error(`Failed to generate video prompt: ${promptError.message}`);
+      }
+
+      const videoPrompt = promptData.videoPrompt;
+      console.log('Generated video prompt:', videoPrompt);
+
+      // Step 2: Generate video using the prompt
+      const { data: videoData, error: videoError } = await supabase.functions.invoke('video-generation', {
+        body: { prompt: videoPrompt }
+      });
+
+      if (videoError) {
+        throw new Error(`Failed to generate video: ${videoError.message}`);
+      }
+
+      // Step 3: Save video to database
+      const { error: dbError } = await supabase
+        .from('generated_videos')
+        .insert({
+          message_id: messageId,
+          video_url: videoData.videoUrl,
+          video_prompt: videoPrompt,
+          provider: videoData.provider || 'huggingface',
+          user_question: userQuestion,
+          ai_response: aiResponse
+        });
+
+      if (dbError) {
+        console.error('Failed to save video to database:', dbError);
+        // Don't throw error here, just log it
+      }
+
+      // Update state
+      setGeneratedVideos(prev => new Map([...prev, [messageId, videoData.videoUrl]]));
+      toast.success('Video generated successfully!');
+
+    } catch (error) {
+      console.error('Video generation error:', error);
+      toast.error(`Failed to generate video: ${error.message}`);
+    } finally {
+      setVideoGenerating(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(messageId);
+        return newSet;
+      });
+    }
   };
   return <div className="min-h-screen bg-gradient-to-br from-background via-background to-secondary/20">
       <div className="container mx-auto px-4 py-8">
@@ -1135,6 +1198,20 @@ const Questions = () => {
                         />
                       </div>
                     )}
+                    
+                    {/* Display generated video if available */}
+                    {generatedVideos.has(message.id) && (
+                      <div className="mt-4 pt-4 border-t border-border/50">
+                        <video 
+                          src={generatedVideos.get(message.id)} 
+                          controls
+                          className="w-full rounded-lg shadow-md"
+                          style={{ maxHeight: '400px' }}
+                        >
+                          Your browser does not support the video tag.
+                        </video>
+                      </div>
+                    )}
 
                     {message.role === 'assistant' && <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50">
                         <div className="flex items-center gap-2">
@@ -1213,9 +1290,24 @@ const Questions = () => {
                           </Button>
                         </div>
                         
-                        {isPremium && <Button variant="ghost" size="sm" onClick={generateVideoResponse} className="ml-auto">
-                            <Video className="h-4 w-4 mr-1" />
-                            Video
+                        {isPremium && <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            onClick={() => {
+                              const userQuestion = messages.find((msg, index) => 
+                                index < messages.indexOf(message) && msg.role === 'user'
+                              )?.content || '';
+                              handleGenerateVideo(message.id, userQuestion, message.content);
+                            }}
+                            disabled={videoGenerating.has(message.id)}
+                            className="ml-auto"
+                          >
+                            {videoGenerating.has(message.id) ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Video className="h-4 w-4 mr-1" />
+                            )}
+                            {videoGenerating.has(message.id) ? 'Generating...' : 'Video'}
                           </Button>}
                       </div>}
                   </div>

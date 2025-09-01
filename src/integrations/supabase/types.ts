@@ -385,6 +385,39 @@ export type Database = {
           },
         ]
       }
+      generated_videos: {
+        Row: {
+          ai_response: string
+          created_at: string
+          id: string
+          message_id: string
+          provider: string
+          user_question: string
+          video_prompt: string
+          video_url: string
+        }
+        Insert: {
+          ai_response: string
+          created_at?: string
+          id?: string
+          message_id: string
+          provider?: string
+          user_question: string
+          video_prompt: string
+          video_url: string
+        }
+        Update: {
+          ai_response?: string
+          created_at?: string
+          id?: string
+          message_id?: string
+          provider?: string
+          user_question?: string
+          video_prompt?: string
+          video_url?: string
+        }
+        Relationships: []
+      }
       leaderboard_snapshots: {
         Row: {
           created_at: string
