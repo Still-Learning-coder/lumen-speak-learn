@@ -111,6 +111,14 @@ const Questions = () => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const isPremium = profile?.premium_until && new Date(profile.premium_until) > new Date();
+  
+  // Debug logging
+  console.log('Debug - Premium status:', { 
+    premium_until: profile?.premium_until, 
+    isPremium, 
+    currentTime: new Date(),
+    profile: profile?.role 
+  });
 
   useEffect(() => {
     if (!user) {
@@ -1030,10 +1038,11 @@ const Questions = () => {
     });
   };
   const handleGenerateVideo = async (messageId: string, userQuestion: string, aiResponse: string) => {
-    if (!isPremium) {
-      toast.error('Video responses are only available for Premium users');
-      return;
-    }
+    // Remove premium check for debugging
+    // if (!isPremium) {
+    //   toast.error('Video responses are only available for Premium users');
+    //   return;
+    // }
 
     if (!user) {
       toast.error('Please sign in to generate videos');
@@ -1274,6 +1283,11 @@ const Questions = () => {
                             variant="ghost"
                             size="sm"
                             onClick={() => {
+                              console.log('Generate Image clicked:', { 
+                                messageId: message.id, 
+                                isGenerating: imageGenerating.has(message.id),
+                                imageGeneratingSet: Array.from(imageGenerating)
+                              });
                               const userQuestion = messages.find((msg, index) => 
                                 index < messages.indexOf(message) && msg.role === 'user'
                               )?.content || '';
@@ -1290,7 +1304,8 @@ const Questions = () => {
                           </Button>
                         </div>
                         
-                        {isPremium && <Button 
+                        {/* Always show video button for debugging, remove isPremium check temporarily */}
+                        <Button 
                             variant="ghost" 
                             size="sm" 
                             onClick={() => {
@@ -1307,8 +1322,8 @@ const Questions = () => {
                             ) : (
                               <Video className="h-4 w-4 mr-1" />
                             )}
-                            {videoGenerating.has(message.id) ? 'Generating...' : 'Video'}
-                          </Button>}
+                            {videoGenerating.has(message.id) ? 'Generating...' : 'Generate Video'}
+                          </Button>
                       </div>}
                   </div>
 
