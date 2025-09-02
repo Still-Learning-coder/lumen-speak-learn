@@ -1,7 +1,7 @@
+import "https://deno.land/x/xhr@0.1.0/mod.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
-import { HfInference } from 'https://esm.sh/@huggingface/inference@2.3.2'
 
-const hfToken = Deno.env.get('HUGGING_FACE_ACCESS_TOKEN');
+const openAIApiKey = Deno.env.get('OPENAI_API_KEY');
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,8 +15,8 @@ serve(async (req) => {
   }
 
   try {
-    if (!hfToken) {
-      throw new Error('Hugging Face API token not found');
+    if (!openAIApiKey) {
+      throw new Error('OpenAI API key not found');
     }
 
     const { prompt } = await req.json();
@@ -31,25 +31,35 @@ serve(async (req) => {
       );
     }
 
-    console.log('Generating image with Hugging Face, prompt:', prompt);
+    console.log('Generating image with OpenAI, prompt:', prompt);
 
-    const hf = new HfInference(hfToken);
-
-    const image = await hf.textToImage({
-      inputs: prompt,
-      model: 'black-forest-labs/FLUX.1-schnell',
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openAIApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'gpt-image-1',
+        prompt: prompt,
+        n: 1,
+        size: '1024x1024',
+        quality: 'high',
+        output_format: 'png'
+      }),
     });
 
-    // Convert the blob to a base64 string
-    const arrayBuffer = await image.arrayBuffer();
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    if (!response.ok) {
+      throw new Error(`OpenAI API error: ${response.status} ${response.statusText}`);
+    }
 
-    console.log('Image generated successfully with Hugging Face');
+    const data = await response.json();
+    console.log('Image generated successfully with OpenAI');
 
     return new Response(
       JSON.stringify({ 
-        imageUrl: `data:image/png;base64,${base64}`,
-        revisedPrompt: prompt // Hugging Face doesn't provide revised prompts like OpenAI
+        imageUrl: `data:image/png;base64,${data.data[0].b64_json}`,
+        revisedPrompt: data.data[0].revised_prompt || prompt
       }),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
